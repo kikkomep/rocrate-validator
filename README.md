@@ -1,6 +1,8 @@
 # rocrate-validator
 
-[![main workflow](https://github.com/crs4/rocrate-validator/actions/workflows/testing.yaml/badge.svg)](https://github.com/crs4/rocrate-validator/actions/workflows/testing.yaml) [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Tests](https://github.com/crs4/rocrate-validator/actions/workflows/testing.yaml/badge.svg)](https://github.com/crs4/rocrate-validator/actions/workflows/testing.yaml) <img alt="PyPI - Version" src="https://img.shields.io/pypi/v/rocrate-validator"> [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+
+[![📦 CI Pipeline 2 -- Release](https://github.com/crs4/rocrate-validator/actions/workflows/release.yaml/badge.svg)](https://github.com/crs4/rocrate-validator/actions/workflows/release.yaml)
 
 <!-- [![Build Status](https://repolab.crs4.it/lifemonitor/rocrate-validator/badges/develop/pipeline.svg)](https://repolab.crs4.it/lifemonitor/rocrate-validator/-/pipelines?page=1&scope=branches&ref=develop) -->
 
