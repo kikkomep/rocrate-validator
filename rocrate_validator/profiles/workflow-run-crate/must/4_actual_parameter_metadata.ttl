@@ -41,16 +41,17 @@ workflow-run-crate:ActualParameterDefinition a sh:NodeShape ;
     sh:property [
         a sh:PropertyShape ;
         sh:name "Actual Parameter Type" ;
-        sh:description "The actual parameter MUST have a type of `DataEntity` or `PropertyValue`" ;
+        sh:description "The actual parameter MUST have a type of `DataEntity`, `PropertyValue` or `Collection`" ;
         sh:path rdf:type ;
         sh:in (
             ro-crate:DataEntity
             ro-crate:GenericDataEntity
             schema:PropertyValue
+            schema:Collection
             workflow-run-crate:ActualParameter
         ) ;
         sh:minCount 1 ;
-        sh:message "The actual parameter MUST have a type of `DataEntity` or `PropertyValue`" ;
+        sh:message "The actual parameter MUST have a type of `DataEntity`, `PropertyValue` or `Collection`" ;
     ] ;
 
     # Expand data graph with triples from the actual parameter definition
