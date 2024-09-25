@@ -54,7 +54,7 @@ workflow-run-crate:ActualParameterDefinition a sh:NodeShape ;
         sh:message "The actual parameter MUST have a type of `DataEntity`, `PropertyValue` or `Collection`" ;
     ] ;
 
-    # Expand data graph with triples from the actual parameter definition
+    # Expand data graph with a triple to define the type of the actual parameter
     sh:rule [
         a sh:TripleRule ;
         sh:subject sh:this ;
