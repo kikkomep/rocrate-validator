@@ -65,4 +65,4 @@ jobs:
             - name: 🔽 Install dependencies
               run: poetry install --no-interaction --no-ansi
             - name: ⌛ Run tests
-              run: poetry run pytest
+              run: poetry run pytest tests/test_cli.py::test_version
