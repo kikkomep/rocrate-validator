@@ -34,7 +34,7 @@ def cli_runner() -> CliRunner:
 
 
 def test_version(cli_runner: CliRunner):
-    result = cli_runner.invoke(cli, ["--version"])
+    result = cli_runner.invoke(cli, ["--version", "--no-interactive", "--disable-color"])
     assert result.exit_code == 0
     assert get_version() in result.output
 
