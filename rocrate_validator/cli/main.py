@@ -61,7 +61,7 @@ def cli(ctx: click.Context, debug: bool, version: bool, disable_color: bool, no_
     # determine if the console is interactive
     interactive = sys.stdout.isatty() and not no_interactive
 
-    console = Console(no_color=disable_color or not interactive, force_terminal=True)
+    console = Console(no_color=disable_color or not interactive, force_terminal=False)
     # pass the console to subcommands through the click context, after configuration
     ctx.obj['console'] = console
     ctx.obj['pager'] = SystemPager()
