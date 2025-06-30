@@ -32,10 +32,37 @@ def cli_runner() -> CliRunner:
     return CliRunner()
 
 
+def decode_shell_string(shell_string: str, remove_formatting: bool = True) -> str:
+    """
+    Decodes a shell string, optionally removing ANSI escape codes for formatting.
+
+    Args:
+        shell_string: The input string, potentially containing ANSI escape codes.
+        remove_formatting: If True, removes ANSI escape codes. If False,
+                           the codes remain in the string (e.g., if you want
+                           to render them in an ANSI-aware viewer).
+
+    Returns:
+        The decoded string, with or without formatting characters.
+    """
+    if remove_formatting:
+        # Regular expression to match common ANSI escape codes
+        # This pattern captures sequences like:
+        # \x1b[...m (SGR parameters for colors, bold, etc.)
+        # \x1b[...A, \x1b[...B, etc. (cursor movement, clear screen, etc. - less common in simple text output)
+        ansi_escape_pattern = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]')
+        cleaned_string = ansi_escape_pattern.sub('', shell_string)
+        return cleaned_string
+    else:
+        # If not removing, the string is already "decoded" in terms of Python's string type
+        # but the escape codes are still present for rendering by a terminal.
+        return shell_string
+
+
 def test_version(cli_runner: CliRunner):
     result = cli_runner.invoke(cli, ["--disable-color", "--version"])
     assert result.exit_code == 0
-    assert get_version() in result.output
+    assert get_version() in decode_shell_string(result.output)
 
 
 def test_validate_subcmd_invalid_rocrate1(cli_runner: CliRunner):
