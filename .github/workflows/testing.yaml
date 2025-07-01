@@ -67,3 +67,5 @@ jobs:
               run: poetry run pytest
               env:
                 TERM: "dumb"
+                LINES: "50"
+                COLUMNS: "120"
