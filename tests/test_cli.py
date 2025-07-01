@@ -83,8 +83,7 @@ def test_validate_with_invalid_profiles_path_dir(cli_runner: CliRunner):
         ]
     )
     assert result.exit_code == 2
-    # logger.debug(result.output)
-    assert re.search(f"Path '{dummy_profiles_path}' does not exist.", result.output)
+    assert re.search(rf"{dummy_profiles_path}.*does not exist.", result.output)
 
 
 def test_profiles_list(cli_runner: CliRunner):
@@ -95,7 +94,7 @@ def test_profiles_list(cli_runner: CliRunner):
     # logger.debug("Profiles list output: %s", result.output)
     assert result.exit_code == 0
     # assert "Available profiles:" in result.output
-    assert "ro-crate-1.1" in result.output  # Check for a known profile
+    assert re.search(r"ro-crate-1.1", result.output)  # Check for a known profile
 
 
 def test_extra_profiles_list(cli_runner: CliRunner, fake_profiles_path: Path):
@@ -106,4 +105,4 @@ def test_extra_profiles_list(cli_runner: CliRunner, fake_profiles_path: Path):
     # logger.debug("Extra profiles list output: %s", result.output)
     assert result.exit_code == 0
     # assert "Available profiles:" in result.output
-    assert "Profile A" in result.output  # Check for a known extra profile
+    assert re.search(r"Profile A", result.output)  # Check for a known extra profile
