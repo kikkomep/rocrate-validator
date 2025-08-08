@@ -32,7 +32,7 @@ report positive and negative feedback. We also welcome contributions, but we sug
 
 ## Installation
 
-You can install the package using `pip` or `poetry`. The following instructions assume you have Python 3.8 or later installed.
+You can install the package using `pip` or `poetry`. The following instructions assume you have Python 3.9 or later installed.
 
 #### [Optional Step: Create a Virtual Environment](#optional-step-create-a-virtual-environment)
 
