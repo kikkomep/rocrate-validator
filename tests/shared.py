@@ -21,7 +21,7 @@ import logging
 import shutil
 import tempfile
 import rdflib
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from pathlib import Path
 from typing import Optional, TypeVar, Union
 from urllib.parse import urljoin
@@ -101,6 +101,7 @@ def do_entity_test(
     profile_identifier: str = DEFAULT_PROFILE_IDENTIFIER,
     rocrate_entity_patch: Optional[dict] = None,
     rocrate_entity_mod_sparql: Optional[str] = None,
+    rocrate_entity_mod_function: Optional[Callable] = None,
     skip_checks: Optional[list[str]] = (),
     rocrate_relative_root_path: Optional[str] = None,
     metadata_only: bool = False,
@@ -112,9 +113,21 @@ def do_entity_test(
 
     Additional keyword arguments (kwargs) are passed along to initialise ValidationSettings.
     """
-    assert not (
-        rocrate_entity_patch and rocrate_entity_mod_sparql
-    ), "Cannot use rocrate_entity_patch and rocrate_entity_mod_sparql together"
+    assert (
+        sum(
+            1
+            for x in (
+                rocrate_entity_patch,
+                rocrate_entity_mod_sparql,
+                rocrate_entity_mod_function,
+            )
+            if x is not None
+        )
+        <= 1
+    ), (
+        "Only one of rocrate_entity_patch, rocrate_entity_mod_sparql, "
+        "rocrate_entity_mod_function may be used at a time"
+    )
 
     # declare variables
     failed_requirements = None
@@ -124,7 +137,9 @@ def do_entity_test(
         rocrate_path = Path(rocrate_path)
 
     temp_rocrate_path = None
-    if any([rocrate_entity_patch, rocrate_entity_mod_sparql]) and rocrate_path.is_dir():
+    if any(
+        [rocrate_entity_patch, rocrate_entity_mod_sparql, rocrate_entity_mod_function]
+    ) and rocrate_path.is_dir():
         # create a temporary copy of the RO-Crate
         temp_rocrate_path = Path(tempfile.TemporaryDirectory().name)
         # copy the RO-Crate to the temporary path using shutil
@@ -142,12 +157,13 @@ def do_entity_test(
             # save the updated RO-Crate metadata
             with open(temp_rocrate_path / "ro-crate-metadata.json", "w") as f:
                 json.dump(rocrate, f)
-        # update the RO-Crate metadata using SPARQL, if required
-        if rocrate_entity_mod_sparql is not None:
+        # update the RO-Crate metadata using SPARQL or a callable, if required
+        if rocrate_entity_mod_sparql is not None or rocrate_entity_mod_function is not None:
             rocrate_graph = load_graph_and_preserve_relative_ids(rocrate)
-
-            rocrate_graph.update(rocrate_entity_mod_sparql)
-
+            if rocrate_entity_mod_sparql is not None:
+                rocrate_graph.update(rocrate_entity_mod_sparql)
+            if rocrate_entity_mod_function is not None:
+                rocrate_graph = rocrate_entity_mod_function(rocrate_graph)
             # save the updated RO-Crate metadata
             context = "https://w3id.org/ro/crate/1.1/context"
             rocrate_graph.serialize(
@@ -157,6 +173,7 @@ def do_entity_test(
                 indent=2,
                 use_native_types=True,
             )
+        # set the new rocrate path
         rocrate_path = temp_rocrate_path
 
     if expected_triggered_requirements is None:
