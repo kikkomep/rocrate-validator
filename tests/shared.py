@@ -158,21 +158,37 @@ def do_entity_test(
             with open(temp_rocrate_path / "ro-crate-metadata.json", "w") as f:
                 json.dump(rocrate, f)
         # update the RO-Crate metadata using SPARQL or a callable, if required
-        if rocrate_entity_mod_sparql is not None or rocrate_entity_mod_function is not None:
+        rocrate_graph = None
+        serialize_base: Optional[str] = None
+        if rocrate_entity_mod_sparql is not None:
+            base = "https://example.org/"
+            rocrate_graph = rdflib.Graph()
+            rocrate_graph.parse(data=rocrate, format="json-ld", publicID=base)
+
+            query = f"""BASE <{base}>
+{rocrate_entity_mod_sparql}
+"""
+            rocrate_graph.update(query)
+            serialize_base = base
+        elif rocrate_entity_mod_function is not None:
             rocrate_graph = load_graph_and_preserve_relative_ids(rocrate)
-            if rocrate_entity_mod_sparql is not None:
-                rocrate_graph.update(rocrate_entity_mod_sparql)
-            if rocrate_entity_mod_function is not None:
-                rocrate_graph = rocrate_entity_mod_function(rocrate_graph)
+            rocrate_graph = rocrate_entity_mod_function(rocrate_graph)
+
+        if rocrate_graph is not None:
             # save the updated RO-Crate metadata
             context = "https://w3id.org/ro/crate/1.1/context"
+            serialize_kwargs = {}
+            if serialize_base is not None:
+                serialize_kwargs["base"] = serialize_base
             rocrate_graph.serialize(
                 Path(temp_rocrate_path, "ro-crate-metadata.json"),
                 format="json-ld",
                 context=context,
                 indent=2,
                 use_native_types=True,
+                **serialize_kwargs,
             )
+            # TODO: tweak the generated crate to strip leading slash from relative URIs, and ensure RDE ID is ./
         # set the new rocrate path
         rocrate_path = temp_rocrate_path
 
