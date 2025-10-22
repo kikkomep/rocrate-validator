@@ -113,21 +113,8 @@ def do_entity_test(
 
     Additional keyword arguments (kwargs) are passed along to initialise ValidationSettings.
     """
-    assert (
-        sum(
-            1
-            for x in (
-                rocrate_entity_patch,
-                rocrate_entity_mod_sparql,
-                rocrate_entity_mod_function,
-            )
-            if x is not None
-        )
-        <= 1
-    ), (
-        "Only one of rocrate_entity_patch, rocrate_entity_mod_sparql, "
-        "rocrate_entity_mod_function may be used at a time"
-    )
+    assert not (rocrate_entity_patch and rocrate_entity_mod_sparql), \
+        "Cannot use rocrate_entity_patch and rocrate_entity_mod_sparql together"
 
     # declare variables
     failed_requirements = None
