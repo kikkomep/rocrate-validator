@@ -47,6 +47,12 @@ class ROCrateEntity:
     def type(self) -> Union[str, list[str]]:
         return self._raw_data.get('@type')
 
+    def is_dataset(self) -> bool:
+        return self.has_type('Dataset')
+
+    def is_file(self) -> bool:
+        return self.has_type('File')
+
     @property
     def name(self) -> str:
         return self._raw_data.get('name')
