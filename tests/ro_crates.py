@@ -52,6 +52,14 @@ class ValidROC:
         return VALID_CRATES_DATA_PATH / "rocrate-with-value-objects"
 
     @property
+    def bagit(self) -> Path:
+        return VALID_CRATES_DATA_PATH / "bagit"
+
+    @property
+    def bagit_zip(self) -> Path:
+        return VALID_CRATES_DATA_PATH / "bagit.zip"
+
+    @property
     def workflow_roc(self) -> Path:
         return VALID_CRATES_DATA_PATH / "workflow-roc"
 
