@@ -452,6 +452,26 @@ class ROCrate(ABC):
         """
         pass
 
+    def __get_search_path__(self, path: Path) -> tuple[Path, Path]:
+        """"
+        Get the search path relative to the RO-Crate root path.
+
+        :param path: the path to resolve
+        :type path: Path
+        :return: the search path
+        :rtype: Path
+        """
+        assert path, "Path cannot be None"
+        # Identify the root path of the RO-Crate
+        root_path = self.relative_root_path or (
+            self.uri.as_path() if self.uri.is_local_resource() and isinstance(path, Path) else path)
+        # Extract the search path relative to the root of the RO-Crate root path
+        try:
+            search_path = path.relative_to(root_path)
+        except Exception:
+            search_path = path
+        return search_path, root_path
+
     def __parse_path__(self, path: Path) -> Path:
         """"
         Parse the given path to resolve it within the RO-Crate.
@@ -815,3 +835,133 @@ class ROCrateRemoteZip(ROCrateLocalZip):
         central_directory_size = eocd[5]
         central_directory_offset = eocd[6]
         return central_directory_offset, central_directory_size
+
+class BagitROCrate(ROCrate, ABC):
+
+    @staticmethod
+    def is_bagit_wrapping_crate(uri: Union[str, Path, URI]) -> bool:
+        """
+        Check if the RO-Crate is a BagIt-wrapped crate.
+
+        :param uri: the URI of the RO-Crate
+        :type uri: Union[str, Path, URI]
+
+        :return: `True` if the RO-Crate is a BagIt-wrapped crate, `False` otherwise
+        :rtype: bool
+        """
+        if not isinstance(uri, URI):
+            uri = URI(uri)
+
+        try:
+            # Check for local directory
+            if uri.is_local_directory():
+                base_path = uri.as_path()
+                return (base_path / 'bagit.txt').is_file() and \
+                    (base_path / 'data' / 'ro-crate-metadata.json').is_file()
+
+            # Check for local zip file
+            elif uri.is_local_file():
+                path = uri.as_path()
+                if path.suffix == '.zip':
+                    with zipfile.ZipFile(path, 'r') as zf:
+                        namelist = zf.namelist()
+                        return 'bagit.txt' in namelist and \
+                            'data/ro-crate-metadata.json' in namelist
+
+            # Check for remote zip file
+            elif uri.is_remote_resource():
+                # For remote resources, we need to check if both files exist
+                # We'll use HTTP HEAD requests to check without downloading
+                base_url = str(uri).rstrip('/')
+
+                if not base_url.endswith('.zip'):
+                    # Check for bagit.txt
+                    bagit_response = HttpRequester().head(f"{base_url}/bagit.txt")
+                    if bagit_response.status_code != 200:
+                        return False
+
+                    # Check for data/ro-crate-metadata.json
+                    metadata_response = HttpRequester().head(f"{base_url}/data/ro-crate-metadata.json")
+                    return metadata_response.status_code == 200
+
+                else:
+                    # If it's a remote zip file, we need to download it partially
+                    # Temporarily create instance to check
+                    temp_crate = ROCrateRemoteZip.__new__(ROCrateRemoteZip)
+                    ROCrate.__init__(temp_crate, uri)
+                    temp_crate._ROCrateRemoteZip__init_zip_reference__()
+                    result = temp_crate.has_file(Path('bagit.txt')) and \
+                        temp_crate.has_file(Path('data/ro-crate-metadata.json'))
+                    del temp_crate
+                    return result
+
+        except Exception as e:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.exception(e)
+            return False
+
+        return False
+
+    def __check_search_path__(self, path):
+        """"
+        Check if the search path is valid for a BagIt-wrapped RO-Crate, 
+        i.e., if it points to the 'data/' directory.
+
+        :param path: the path to resolve
+        :type path: Path
+        :return: the search path if valid, None otherwise
+        :rtype: Path or None
+        """
+        search_path, root_path = super().__get_search_path__(path)
+        # Check if the path has the substring 'data/' in it
+        has_sub_data_path = re.search(r'data/', str(search_path))
+        logger.debug("The search path '%s' %s the 'data/' sub-path", search_path,
+                     "contains" if has_sub_data_path else "does not contain")
+        if search_path == "." or not has_sub_data_path:
+            return search_path, root_path
+        return None, None
+
+
+class ROCrateBagitLocalFolder(BagitROCrate, ROCrateLocalFolder):
+
+    def __init__(self, uri: Union[str, Path, URI], relative_root_path: Path = None):
+        # initialize the parent classes
+        super(ROCrateLocalFolder, self).__init__(uri, relative_root_path=relative_root_path)
+
+        # check if the path is a BagIt-wrapped crate
+        assert self.is_bagit_wrapping_crate(uri), "Not a BagIt-wrapped RO-Crate"
+
+    def __parse_path__(self, path: Path) -> Path:
+        search_path, root_path = self.__check_search_path__(path)
+        logger.debug("The search path: %s (root: %s)", search_path, root_path)
+        # if search_path and root_path are set, adjust the path
+        if search_path and root_path:
+            path = root_path / Path('data') / search_path
+            logger.debug("Adjusted path of ROCrate is set to: %s", path)
+        else:
+            logger.debug("The relative root path is set to: %s", self.relative_root_path)
+        return path
+
+
+class ROCrateBagitLocalZip(BagitROCrate, ROCrateLocalZip):
+
+    def __init__(self, uri: Union[str, Path, URI], relative_root_path: Path = None):
+        # initialize the parent classes
+        super(ROCrateLocalZip, self).__init__(uri, relative_root_path=relative_root_path)
+
+        # check if the path is a BagIt-wrapped crate
+        assert self.is_bagit_wrapping_crate(uri), "Not a BagIt-wrapped RO-Crate"
+
+    def __parse_path__(self, path: Path) -> Path:
+        # Extract the search path relative to the root of the RO-Crate root path
+        search_path, _ = super().__check_search_path__(path)
+        logger.debug("The search path: %s", search_path)
+
+        # if search_path is set, adjust the path
+        if search_path:
+            path = Path('data') / search_path
+            logger.debug("Adjusted path of ROCrateLocalZip is set to: %s", path)
+        else:
+            logger.debug("The relative root path is set to: %s", self.relative_root_path)
+        return path
+
