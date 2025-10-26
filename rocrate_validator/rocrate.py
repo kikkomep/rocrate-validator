@@ -660,9 +660,14 @@ class ROCrateLocalZip(ROCrate):
         self._files = None
 
     def __del__(self):
+        try:
         if self._zipref and self._zipref.fp is not None:
             self._zipref.close()
             del self._zipref
+        except Exception as e:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.exception(e)
+
     def __parse_path__(self, path):
         assert path, "Path cannot be None"
         # If the RO-Crate is a zip file, the path should be changed
