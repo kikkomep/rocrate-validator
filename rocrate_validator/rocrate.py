@@ -663,6 +663,10 @@ class ROCrateLocalZip(ROCrate):
         if self._zipref and self._zipref.fp is not None:
             self._zipref.close()
             del self._zipref
+    def __parse_path__(self, path):
+        assert path, "Path cannot be None"
+        # If the RO-Crate is a zip file, the path should be changed
+        return path
 
     @property
     def size(self) -> int:
@@ -686,14 +690,12 @@ class ROCrateLocalZip(ROCrate):
         return ROCrateMetadata.METADATA_FILE_DESCRIPTOR in [str(_.name) for _ in self.list_files()]
 
     def has_file(self, path: Path) -> bool:
-        if path in self.list_files():
+        path = self.__parse_path__(path)
             info = self.__get_file_info__(path)
             return not info.is_dir()
         return False
 
-    def has_directory(self, path: Path) -> bool:
-        if path in self.list_files():
-            info = self.__get_file_info__(path)
+        for px in (path, self.__parse_path__(path)):
             return info.is_dir()
         return False
 
@@ -711,12 +713,11 @@ class ROCrateLocalZip(ROCrate):
         """
         Return the ZipInfo object for the specified path.
         """
-        return self.__get_file_info__(path)
+        return self.__get_file_info__(self.__parse_path__(path))
 
-    def get_file_size(self, path: Path) -> int:
-        return self._zipref.getinfo(str(path)).file_size
+        return self._zipref.getinfo(str(self.__parse_path__(path))).file_size
 
-    def get_file_content(self, path: Path, binary_mode: bool = True) -> Union[str, bytes]:
+        path = self.__parse_path__(path)
         if not self.has_file(path):
             raise FileNotFoundError(f"File not found: {path}")
         data = self._zipref.read(str(path))
