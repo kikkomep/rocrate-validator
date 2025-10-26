@@ -866,6 +866,7 @@ class ROCrateRemoteZip(ROCrateLocalZip):
         central_directory_offset = eocd[6]
         return central_directory_offset, central_directory_size
 
+
 class BagitROCrate(ROCrate, ABC):
 
     @staticmethod
