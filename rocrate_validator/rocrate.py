@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import struct
 import zipfile
 from abc import ABC, abstractmethod
