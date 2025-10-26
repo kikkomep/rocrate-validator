@@ -555,20 +555,20 @@ class URI:
         return hash(self._uri)
 
 
-def validate_rocrate_uri(uri: Union[str, URI], silent: bool = False) -> bool:
+def validate_rocrate_uri(uri: Union[str, Path, URI], silent: bool = False) -> bool:
     """
     Validate the RO-Crate URI
 
-    :param uri: The RO-Crate URI
+    :param uri: The RO-Crate URI to validate. Can be a string, Path, or URI object
     :param silent: If True, do not raise an exception
     :return: True if the URI is valid, False otherwise
     """
     try:
         assert uri, "The RO-Crate URI is required"
-        assert isinstance(uri, (str, URI)), "The RO-Crate URI must be a string or URI object"
+        assert isinstance(uri, (str, Path, URI)), "The RO-Crate URI must be a string, Path, or URI object"
         try:
             # parse the value to extract the scheme
-            uri = URI(uri) if isinstance(uri, str) else uri
+            uri = URI(str(uri)) if isinstance(uri, str) or isinstance(uri, Path) else uri
             # check if the URI is a remote resource or local directory or local file
             if not uri.is_remote_resource() and not uri.is_local_directory() and not uri.is_local_file():
                 raise errors.ROCrateInvalidURIError(uri)
