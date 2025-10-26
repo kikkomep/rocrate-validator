@@ -387,7 +387,7 @@ class ROCrate(ABC):
     Base class for representing and interacting with a Research Object Crate (RO-Crate).
     """
 
-    def __init__(self, uri: Union[str, Path, URI]):
+    def __init__(self, uri: Union[str, Path, URI], relative_root_path: Path = None) -> None:
         """
         Initialize the RO-Crate.
 
@@ -399,6 +399,9 @@ class ROCrate(ABC):
 
         # store the path to the crate
         self._uri = URI(uri)
+
+        # the relative root path inside the RO-Crate
+        self.relative_root_path = relative_root_path
 
         # cache the list of files
         self._files = None
@@ -450,8 +453,20 @@ class ROCrate(ABC):
         pass
 
     def __parse_path__(self, path: Path) -> Path:
+        """"
+        Parse the given path to resolve it within the RO-Crate.
+        :param path: the path to resolve
+        :type path: Path
+        :return: the resolved path
+        :rtype: Path
+        """
         assert path, "Path cannot be None"
-        return ROCrateEntity.get_path_from_identifier(str(path), rocrate_path=self.uri.as_path())
+        # Resolve the path based on the RO-Crate location
+        rocrate_path = self.relative_root_path or self.uri.as_path() if self.uri.is_local_resource() else None
+        rocrate_path_arg = rocrate_path if not str(rocrate_path).endswith('.zip') else None
+        path = ROCrateEntity.get_path_from_identifier(str(path), rocrate_path=rocrate_path_arg)
+        logger.debug("Resolved path: %s", path)
+        return path
 
     def has_descriptor(self) -> bool:
         """
@@ -460,7 +475,9 @@ class ROCrate(ABC):
         :return: `True` if the RO-Crate has a metadata descriptor file, `False` otherwise
         :rtype: bool
         """
-        return (self.uri.as_path().absolute() / self.metadata.METADATA_FILE_DESCRIPTOR).is_file()
+        path = self.__parse_path__(Path(self.metadata.METADATA_FILE_DESCRIPTOR))
+        logger.debug("Checking for metadata descriptor at path: %s", path)
+        return self.has_file(path)
 
     def has_file(self, path: Path) -> bool:
         """
@@ -593,8 +610,8 @@ class ROCrate(ABC):
 
 class ROCrateLocalFolder(ROCrate):
 
-    def __init__(self, path: Union[str, Path, URI]):
-        super().__init__(path)
+    def __init__(self, path: Union[str, Path, URI], relative_root_path: Path = None):
+        super().__init__(path, relative_root_path=relative_root_path)
 
         # cache the list of files
         self._files = None
@@ -631,8 +648,8 @@ class ROCrateLocalFolder(ROCrate):
 
 class ROCrateLocalZip(ROCrate):
 
-    def __init__(self, path: Union[str, Path, URI], init_zip: bool = True):
-        super().__init__(path)
+    def __init__(self, path: Union[str, Path, URI], relative_root_path: Path = None, init_zip: bool = True):
+        super().__init__(path, relative_root_path=relative_root_path)
 
         # initialize the zip reference
         self._zipref = None
@@ -708,8 +725,8 @@ class ROCrateLocalZip(ROCrate):
 
 class ROCrateRemoteZip(ROCrateLocalZip):
 
-    def __init__(self, path: Union[str, Path, URI]):
-        super().__init__(path, init_zip=False)
+    def __init__(self, path: Union[str, Path, URI], relative_root_path: Path = None):
+        super().__init__(path, relative_root_path=relative_root_path, init_zip=False)
 
         logger.debug("Size: %s", self.size)
 
