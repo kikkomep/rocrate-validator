@@ -689,7 +689,11 @@ class ROCrateLocalZip(ROCrate):
         logger.debug("Initialized zip reference: %s", self._zipref)
 
     def __get_file_info__(self, path: Path) -> zipfile.ZipInfo:
+        try:
         return self._zipref.getinfo(str(path))
+        except KeyError:
+            logger.error("File not found in zip: %s", path)
+            raise FileNotFoundError(f"File not found in zip: {path}")
 
     def has_descriptor(self) -> bool:
         return ROCrateMetadata.METADATA_FILE_DESCRIPTOR in [str(_.name) for _ in self.list_files()]
