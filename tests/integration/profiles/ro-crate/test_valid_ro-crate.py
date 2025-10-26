@@ -47,3 +47,21 @@ def test_valid_roc_required_with_long_datetime():
         Severity.REQUIRED,
         True
     )
+
+
+def test_valid_roc_bagit_required():
+    """Test a valid RO-Crate."""
+    do_entity_test(
+        ValidROC().bagit,
+        Severity.REQUIRED,
+        True
+    )
+
+
+def test_valid_roc_bagit_zip_required():
+    """Test a valid RO-Crate."""
+    do_entity_test(
+        ValidROC().bagit_zip,
+        Severity.REQUIRED,
+        True
+    )
