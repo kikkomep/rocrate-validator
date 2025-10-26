@@ -387,6 +387,32 @@ class ROCrate(ABC):
     Base class for representing and interacting with a Research Object Crate (RO-Crate).
     """
 
+    def __new__(cls, uri: Union[str, Path, URI], relative_root_path: Path = None):
+        """
+        Factory method to create the appropriate ROCrate subclass instance.
+
+        :param uri: the URI of the RO-Crate
+        :type uri: Union[str, Path, URI]
+
+        :param relative_root_path: the relative root path inside the RO-Crate
+        :type relative_root_path: Path
+
+        :return: an instance of the appropriate ROCrate subclass
+        :rtype: ROCrate
+
+        :raises ROCrateInvalidURIError: if the URI is invalid
+        """
+        if cls is not ROCrate:
+            # If called on a subclass, use normal instantiation
+            instance = super(ROCrate, cls).__new__(cls)
+            return instance
+
+        # If called on ROCrate directly, use factory logic
+        instance = cls.new_instance(uri)
+        if relative_root_path:
+            instance.relative_root_path = relative_root_path
+        return instance
+
     def __init__(self, uri: Union[str, Path, URI], relative_root_path: Path = None) -> None:
         """
         Initialize the RO-Crate.
@@ -615,12 +641,15 @@ class ROCrate(ABC):
         # create a new instance based on the URI
         if not isinstance(uri, URI):
             uri = URI(uri)
+        # check if the URI is a BagIt-wrapped crate
+        is_bagit_crate = BagitROCrate.is_bagit_wrapping_crate(uri)
+
         # check if the URI is a local directory
         if uri.is_local_directory():
-            return ROCrateLocalFolder(uri)
+            return ROCrateBagitLocalFolder(uri) if is_bagit_crate else ROCrateLocalFolder(uri)
         # check if the URI is a local zip file
         if uri.is_local_file():
-            return ROCrateLocalZip(uri)
+            return ROCrateBagitLocalZip(uri) if is_bagit_crate else ROCrateLocalZip(uri)
         # check if the URI is a remote zip file
         if uri.is_remote_resource():
             return ROCrateRemoteZip(uri)
