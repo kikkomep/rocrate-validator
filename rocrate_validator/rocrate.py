@@ -696,15 +696,28 @@ class ROCrateLocalZip(ROCrate):
             raise FileNotFoundError(f"File not found in zip: {path}")
 
     def has_descriptor(self) -> bool:
-        return ROCrateMetadata.METADATA_FILE_DESCRIPTOR in [str(_.name) for _ in self.list_files()]
+        """
+        Check if the RO-Crate has a metadata descriptor file.
+        :rtype: bool
+        """
+        path = self.__parse_path__(Path(self.metadata.METADATA_FILE_DESCRIPTOR))
+        return str(path) in [str(_) for _ in self.list_files()]
 
     def has_file(self, path: Path) -> bool:
         path = self.__parse_path__(path)
+        for p in self.list_files():
+            if str(path) == str(p):
             info = self.__get_file_info__(path)
             return not info.is_dir()
         return False
 
+    def has_directory(self, path:
+                      Path) -> bool:
+        assert path, "Path cannot be None"
         for px in (path, self.__parse_path__(path)):
+            for p in self._zipref.namelist():
+                if f"{str(px)}/" == str(p) or str(px) == str(p):
+                    info = self.__get_file_info__(p)
             return info.is_dir()
         return False
 
@@ -724,8 +737,12 @@ class ROCrateLocalZip(ROCrate):
         """
         return self.__get_file_info__(self.__parse_path__(path))
 
+    def get_file_size(self, path:
+                      Path) -> int:
         return self._zipref.getinfo(str(self.__parse_path__(path))).file_size
 
+    def get_file_content(self, path:
+                         Path, binary_mode: bool = True) -> Union[str, bytes]:
         path = self.__parse_path__(path)
         if not self.has_file(path):
             raise FileNotFoundError(f"File not found: {path}")
