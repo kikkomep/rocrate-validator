@@ -1573,10 +1573,10 @@ class ValidationResult:
                 and check.severity == severity]
 
     def __str__(self) -> str:
-        return f"Validation result: passed={len(self.failed_checks)==0}, {len(self._issues)} issues"
+        return f"Validation result: passed={len(self.failed_checks) == 0}, {len(self._issues)} issues"
 
     def __repr__(self):
-        return f"ValidationResult(passed={len(self.failed_checks)==0},issues={self._issues})"
+        return f"ValidationResult(passed={len(self.failed_checks) == 0},issues={self._issues})"
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, ValidationResult):
@@ -1824,7 +1824,7 @@ class RequirementCheckValidationEvent(Event):
 
     def __repr__(self) -> str:
         return f"RequirementCheckValidationEvent(event_type={self.event_type}, " \
-               f"requirement_check={self.requirement_check})"
+            f"requirement_check={self.requirement_check})"
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, RequirementCheckValidationEvent):
