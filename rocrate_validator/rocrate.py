@@ -491,7 +491,7 @@ class ROCrate(ABC):
         assert path, "Path cannot be None"
         # Identify the root path of the RO-Crate
         root_path = self.relative_root_path or (
-            self.uri.as_path() if self.uri.is_local_resource() and isinstance(path, Path) else path)
+            self.uri.as_path() if self.uri.is_local_resource() and isinstance(path, Path) else Path('./'))
         # Extract the search path relative to the root of the RO-Crate root path
         try:
             search_path = path.relative_to(root_path)
