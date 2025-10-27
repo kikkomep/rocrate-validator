@@ -71,7 +71,9 @@ class ROCrateEntity:
 
     @classmethod
     def get_id_as_path(cls, entity_id: str, ro_crate: Optional[ROCrate] = None) -> Path:
-        return cls.get_path_from_identifier(entity_id, ro_crate.uri.as_path() if ro_crate else None)
+        result = cls.get_path_from_identifier(entity_id, ro_crate.uri.as_path()
+                                              if ro_crate and ro_crate.uri.is_local_resource() else None)
+        return result
 
     @staticmethod
     def get_path_from_identifier(identifier: str, rocrate_path: Optional[Union[str, Path]] = None) -> Path:
@@ -130,6 +132,9 @@ class ROCrateEntity:
         assert entity_id, "Entity ID cannot be None"
         if entity_id.startswith("http"):
             return URI(entity_id)
+        if ro_crate.uri.is_remote_resource():
+            if entity_id.startswith("./"):
+                return URI(f"{ro_crate.uri}/{entity_id[2:]}")
         return URI(cls.get_id_as_path(entity_id, ro_crate))
 
     @property
@@ -192,7 +197,8 @@ class ROCrateEntity:
         try:
             # check if the entity points to an external file
             if self.id.startswith("http"):
-                return ROCrate.get_external_file_size(self.id) > 0
+                logger.debug("Checking the availability of a remote entity")
+                return self.ro_crate.get_external_file_size(self.id) > 0
 
             # check if the entity is part of the local RO-Crate
             if self.ro_crate.uri.is_local_resource():
@@ -213,8 +219,12 @@ class ROCrateEntity:
                         or self.ro_crate.has_file(unquote(str(self.id)))
 
             # check if the entity is part of the remote RO-Crate
+            logger.debug("Checking the availability of a remote entity in a remote RO-Crate")
             if self.ro_crate.uri.is_remote_resource():
-                return self.ro_crate.get_file_size(Path(self.id)) > 0
+                if self.id == "./":
+                    return self.ro_crate.get_file_size(Path(self.id_as_uri())) > 0
+                return self.ro_crate.has_directory(unquote(str(self.id))) \
+                    or self.ro_crate.has_file(unquote(str(self.id)))
         except Exception as e:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.exception(e)
