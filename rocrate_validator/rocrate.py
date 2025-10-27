@@ -935,7 +935,7 @@ class BagitROCrate(ROCrate, ABC):
 
     def __check_search_path__(self, path):
         """"
-        Check if the search path is valid for a BagIt-wrapped RO-Crate, 
+        Check if the search path is valid for a BagIt-wrapped RO-Crate,
         i.e., if it points to the 'data/' directory.
 
         :param path: the path to resolve
@@ -995,5 +995,3 @@ class ROCrateBagitLocalZip(BagitROCrate, ROCrateLocalZip):
         else:
             logger.debug("The relative root path is set to: %s", self.relative_root_path)
         return path
-
-
