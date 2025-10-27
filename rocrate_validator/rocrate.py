@@ -653,7 +653,7 @@ class ROCrate(ABC):
             return ROCrateBagitLocalZip(uri) if is_bagit_crate else ROCrateLocalZip(uri)
         # check if the URI is a remote zip file
         if uri.is_remote_resource():
-            return ROCrateRemoteZip(uri)
+            return ROCrateBagitRemoteZip(uri) if is_bagit_crate else ROCrateRemoteZip(uri)
         # if the URI is not supported, raise an error
         raise ROCrateInvalidURIError(uri=uri, message="Unsupported RO-Crate URI")
 
@@ -804,8 +804,6 @@ class ROCrateRemoteZip(ROCrateLocalZip):
 
     def __init__(self, path: Union[str, Path, URI], relative_root_path: Path = None):
         super().__init__(path, relative_root_path=relative_root_path, init_zip=False)
-
-        logger.debug("Size: %s", self.size)
 
         # # initialize the zip reference
         self.__init_zip_reference__()
@@ -990,6 +988,22 @@ class ROCrateBagitLocalZip(BagitROCrate, ROCrateLocalZip):
         # Extract the search path relative to the root of the RO-Crate root path
         search_path, _ = super().__check_search_path__(path)
         logger.debug("The search path: %s", search_path)
+
+        # if search_path is set, adjust the path
+        if search_path:
+            path = Path('data') / search_path
+            logger.debug("Adjusted path of ROCrateLocalZip is set to: %s", path)
+        else:
+            logger.debug("The relative root path is set to: %s", self.relative_root_path)
+        return path
+
+
+class ROCrateBagitRemoteZip(BagitROCrate, ROCrateRemoteZip):
+
+    def __parse_path__(self, path: Path) -> Path:
+        # Extract the search path relative to the root of the RO-Crate root path
+        search_path, _ = super().__check_search_path__(path)
+        logger.debug("The search path: %s -> %s", path, search_path)
 
         # if search_path is set, adjust the path
         if search_path:
