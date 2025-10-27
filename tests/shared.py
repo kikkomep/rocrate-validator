@@ -55,7 +55,7 @@ def do_entity_test(
     failed_requirements = None
     detected_issues = None
 
-    if not isinstance(rocrate_path, Path):
+    if not isinstance(rocrate_path, Path) and not rocrate_path.startswith("http"):
         rocrate_path = Path(rocrate_path)
 
     temp_rocrate_path = None
