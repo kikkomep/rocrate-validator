@@ -869,6 +869,12 @@ class ROCrateRemoteZip(ROCrateLocalZip):
 
 class BagitROCrate(ROCrate, ABC):
 
+    def __init__(self, uri, relative_root_path=None):
+        super().__init__(uri, relative_root_path)
+
+        # check if the path is a BagIt-wrapped crate
+        assert self.is_bagit_wrapping_crate(uri), "Not a BagIt-wrapped RO-Crate"
+
     @staticmethod
     def is_bagit_wrapping_crate(uri: Union[str, Path, URI]) -> bool:
         """
@@ -918,11 +924,16 @@ class BagitROCrate(ROCrate, ABC):
                 else:
                     # If it's a remote zip file, we need to download it partially
                     # Temporarily create instance to check
-                    temp_crate = ROCrateRemoteZip.__new__(ROCrateRemoteZip)
-                    ROCrate.__init__(temp_crate, uri)
-                    temp_crate._ROCrateRemoteZip__init_zip_reference__()
-                    result = temp_crate.has_file(Path('bagit.txt')) and \
-                        temp_crate.has_file(Path('data/ro-crate-metadata.json'))
+                    temp_crate = ROCrateRemoteZip(uri)
+                    logger.debug("Initializing ROCrateRemoteZip for URI: %s", uri)
+                    # ROCrate.__init__(temp_crate, uri)
+                    # temp_crate._ROCrateRemoteZip__init_zip_reference__()
+                    has_bagit_txt = temp_crate.has_file(Path('bagit.txt'))
+                    logger.debug("Presence of 'bagit.txt': %s", has_bagit_txt)
+                    has_ro_crate_metadata = temp_crate.has_file(Path('data/ro-crate-metadata.json'))
+                    logger.debug("Presence of 'data/ro-crate-metadata.json': %s",
+                                 has_ro_crate_metadata)
+                    result = has_bagit_txt and has_ro_crate_metadata
                     del temp_crate
                     return result
 
