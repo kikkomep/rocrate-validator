@@ -179,6 +179,31 @@ def test_remote_bagit_rocrate():
     assert isinstance(roc, ROCrateRemoteZip), "Should be a ROCrateRemoteZip"
     assert isinstance(roc, ROCrateBagitRemoteZip), "Should be a ROCrateBagitRemoteZip"
 
+    # test list files
+    files = roc.list_files()
+    logger.debug(f"Files: {files}")
+    assert len(files) == 16, "Should have 16 files"
+
+    # test is_file
+    assert roc.has_file(metadata_file_descriptor), "Should be a file"
+    # test file size
+    size = roc.get_file_size(metadata_file_descriptor)
+    assert size == 7321, "Size should be 7321"
+
+    # test has directory
+    assert roc.has_directory(Path("data")), "Should have data/ directory"
+    assert roc.has_directory(Path("data/pics/")), "Should have data/pics/ directory"
+    assert roc.has_directory(Path("data%20set/")), "Should have data%20set/ directory"
+    assert roc.has_directory(Path("data set3/")), "Should have data set3/ directory"
+    # test has file
+    assert roc.has_file("pics/2018-06-11 12.56.14.jpg"), "Should have pics/2018-06-11%2012.56.14.jpg file"
+
+    # test file availability
+    img_2018 = roc.metadata.get_entity("pics/2018-06-11%2012.56.14.jpg")
+    assert img_2018 is not None, "Should have pics/2018-06-11%2012.56.14.jpg entity"
+    logger.debug(f"Image 2018 entity: {img_2018}")
+    assert img_2018.is_available(), "pics/2018-06-11%2012.56.14.jpg entity should be available"
+
 
 def test_valid_local_rocrate():
     roc = ROCrateLocalFolder(ValidROC().wrroc_paper)
