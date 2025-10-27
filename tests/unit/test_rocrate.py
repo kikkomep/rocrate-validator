@@ -18,7 +18,8 @@ import pytest
 
 from rocrate_validator import log as logging
 from rocrate_validator.errors import ROCrateInvalidURIError
-from rocrate_validator.rocrate import (BagitROCrate, ROCrate, ROCrateBagitLocalFolder, ROCrateBagitLocalZip, ROCrateEntity,
+from rocrate_validator.rocrate import (BagitROCrate, ROCrate, ROCrateBagitLocalFolder,
+                                       ROCrateBagitLocalZip, ROCrateEntity,
                                        ROCrateLocalFolder, ROCrateLocalZip,
                                        ROCrateMetadata, ROCrateRemoteZip)
 from tests.ro_crates import InvalidDataEntity, ValidROC
