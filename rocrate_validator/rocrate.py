@@ -711,9 +711,9 @@ class ROCrateLocalZip(ROCrate):
 
     def __del__(self):
         try:
-        if self._zipref and self._zipref.fp is not None:
-            self._zipref.close()
-            del self._zipref
+            if self._zipref and self._zipref.fp is not None:
+                self._zipref.close()
+                del self._zipref
         except Exception as e:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.exception(e)
@@ -740,7 +740,7 @@ class ROCrateLocalZip(ROCrate):
 
     def __get_file_info__(self, path: Path) -> zipfile.ZipInfo:
         try:
-        return self._zipref.getinfo(str(path))
+            return self._zipref.getinfo(str(path))
         except KeyError:
             logger.error("File not found in zip: %s", path)
             raise FileNotFoundError(f"File not found in zip: {path}")
@@ -757,8 +757,8 @@ class ROCrateLocalZip(ROCrate):
         path = self.__parse_path__(path)
         for p in self.list_files():
             if str(path) == str(p):
-            info = self.__get_file_info__(path)
-            return not info.is_dir()
+                info = self.__get_file_info__(path)
+                return not info.is_dir()
         return False
 
     def has_directory(self, path:
@@ -768,7 +768,7 @@ class ROCrateLocalZip(ROCrate):
             for p in self._zipref.namelist():
                 if f"{str(px)}/" == str(p) or str(px) == str(p):
                     info = self.__get_file_info__(p)
-            return info.is_dir()
+                    return info.is_dir()
         return False
 
     def list_files(self) -> list[Path]:
@@ -995,4 +995,5 @@ class ROCrateBagitLocalZip(BagitROCrate, ROCrateLocalZip):
         else:
             logger.debug("The relative root path is set to: %s", self.relative_root_path)
         return path
+
 
