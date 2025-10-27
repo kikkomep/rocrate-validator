@@ -958,7 +958,6 @@ class ROCrateBagitLocalFolder(BagitROCrate, ROCrateLocalFolder):
     def __init__(self, uri: Union[str, Path, URI], relative_root_path: Path = None):
         # initialize the parent classes
         super(ROCrateLocalFolder, self).__init__(uri, relative_root_path=relative_root_path)
-
         # check if the path is a BagIt-wrapped crate
         assert self.is_bagit_wrapping_crate(uri), "Not a BagIt-wrapped RO-Crate"
 
@@ -975,13 +974,6 @@ class ROCrateBagitLocalFolder(BagitROCrate, ROCrateLocalFolder):
 
 
 class ROCrateBagitLocalZip(BagitROCrate, ROCrateLocalZip):
-
-    def __init__(self, uri: Union[str, Path, URI], relative_root_path: Path = None):
-        # initialize the parent classes
-        super(ROCrateLocalZip, self).__init__(uri, relative_root_path=relative_root_path)
-
-        # check if the path is a BagIt-wrapped crate
-        assert self.is_bagit_wrapping_crate(uri), "Not a BagIt-wrapped RO-Crate"
 
     def __parse_path__(self, path: Path) -> Path:
         # Extract the search path relative to the root of the RO-Crate root path
