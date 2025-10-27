@@ -91,7 +91,7 @@ def test_rocrate_factory():
     assert isinstance(roc, ROCrateLocalZip), "Should be a ROCrateLocalZip"
     assert isinstance(roc, ROCrateBagitLocalZip), "Should be a ROCrateBagitLocalZip"
 
-    roc = ROCrate.new_instance(ValidROC().bagit_remote)
+    roc = ROCrate.new_instance(ValidROC().bagit_remote_zip)
     assert isinstance(roc, ROCrateRemoteZip), "Should be a ROCrateRemoteZip"
     assert isinstance(roc, BagitROCrate), "Should be a BagItROCrate"
     assert isinstance(roc, ROCrateBagitRemoteZip), "Should be a ROCrateBagitRemoteZip"
