@@ -18,8 +18,10 @@ import pytest
 
 from rocrate_validator import log as logging
 from rocrate_validator.errors import ROCrateInvalidURIError
-from rocrate_validator.rocrate import (BagitROCrate, ROCrate, ROCrateBagitLocalFolder,
-                                       ROCrateBagitLocalZip, ROCrateEntity,
+from rocrate_validator.rocrate import (BagitROCrate, ROCrate,
+                                       ROCrateBagitLocalFolder,
+                                       ROCrateBagitLocalZip,
+                                       ROCrateBagitRemoteZip, ROCrateEntity,
                                        ROCrateLocalFolder, ROCrateLocalZip,
                                        ROCrateMetadata, ROCrateRemoteZip)
 from tests.ro_crates import InvalidDataEntity, ValidROC
@@ -48,7 +50,8 @@ def test_is_bagit_rocrate():
     assert BagitROCrate.is_bagit_wrapping_crate(ValidROC().bagit_zip), \
         "Should be a BagIt Zip RO-Crate"
 
-    # TODO: add test for remote bagit ro-crate
+    assert BagitROCrate.is_bagit_wrapping_crate(ValidROC().bagit_remote_zip), \
+        "Should be a BagIt Remote Zip RO-Crate"
 
     assert not BagitROCrate.is_bagit_wrapping_crate(ValidROC().wrroc_paper), \
         "Should not be a BagIt RO-Crate"
@@ -167,6 +170,15 @@ def test_local_folder_with_relative_root():
     # test get_file_content
     content = roc.get_file_content("ro-crate-metadata.json")
     assert isinstance(content, bytes), "Content should be bytes"
+
+
+def test_remote_bagit_rocrate():
+
+    bagit_crate = ValidROC().bagit_remote_zip
+    roc = ROCrate.new_instance(bagit_crate)
+    assert isinstance(roc, BagitROCrate), "Should be a BagItROCrate"
+    assert isinstance(roc, ROCrateRemoteZip), "Should be a ROCrateRemoteZip"
+    assert isinstance(roc, ROCrateBagitRemoteZip), "Should be a ROCrateBagitRemoteZip"
 
 
 def test_valid_local_rocrate():

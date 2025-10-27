@@ -56,6 +56,10 @@ class ValidROC:
         return VALID_CRATES_DATA_PATH / "bagit.zip"
 
     @property
+    def bagit_remote_zip(self) -> str:
+        return "https://github.com/kikkomep/rocrate-validator/raw/refs/heads/feat/configurable-root-issue-100/tests/data/crates/valid/bagit.zip"
+
+    @property
     def workflow_roc(self) -> Path:
         return VALID_CRATES_DATA_PATH / "workflow-roc"
 
