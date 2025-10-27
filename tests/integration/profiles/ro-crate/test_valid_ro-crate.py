@@ -74,3 +74,12 @@ def test_valid_roc_bagit_zip_required():
         Severity.REQUIRED,
         True
     )
+
+
+def test_valid_roc_remote_bagit_required():
+    """Test a valid RO-Crate."""
+    do_entity_test(
+        ValidROC().bagit_remote_zip,
+        Severity.REQUIRED,
+        True
+    )
