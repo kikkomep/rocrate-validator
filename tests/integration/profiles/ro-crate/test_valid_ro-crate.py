@@ -49,6 +49,15 @@ def test_valid_roc_required_with_long_datetime():
     )
 
 
+def test_valid_roc_remote_required():
+    """Test a valid RO-Crate."""
+    do_entity_test(
+        ValidROC().sort_and_change_remote,
+        Severity.REQUIRED,
+        True
+    )
+
+
 def test_valid_roc_bagit_required():
     """Test a valid RO-Crate."""
     do_entity_test(
