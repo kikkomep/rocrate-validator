@@ -71,7 +71,7 @@ def test_abstract_bagit_rocrate_instantiation():
 
 def test_rocrate_factory():
 
-    logger.warning("Testing wrroc_paper: %s", ValidROC().wrroc_paper)
+    logger.debug("Testing wrroc_paper: %s", ValidROC().wrroc_paper)
     roc = ROCrate.new_instance(ValidROC().wrroc_paper)
     assert isinstance(roc, ROCrateLocalFolder), "Should be a ROCrateLocalFolder"
 
@@ -145,7 +145,7 @@ def test_parse_path():
 
 def test_local_folder_with_relative_root():
     # set relative root path
-    relative_root_path = ValidROC().bagit / "data"
+    relative_root_path = "data"
     # create ROCrateBagitLocalFolder with relative root path
     roc = ROCrateLocalFolder(ValidROC().bagit, relative_root_path=relative_root_path)
     assert isinstance(roc, ROCrateLocalFolder)
@@ -157,17 +157,18 @@ def test_local_folder_with_relative_root():
     search_path, root_path = roc.__get_search_path__(path)
     logger.debug(f"Search path: {search_path}")
     logger.debug(f"Root path: {root_path}")
-    assert root_path == relative_root_path, "Root path should be data"
+    assert root_path == roc.uri.as_path(), "Root path should be the ro-crate path"
+    assert search_path == path, "Search path should be file.txt"
 
     parsed_path = roc.__parse_path__(path)
     logger.debug(f"Parsed path: {parsed_path}")
-    assert parsed_path == relative_root_path / path, "Parsed path should be data/file.txt"
+    assert parsed_path == ValidROC().bagit / relative_root_path / path, "Parsed path should be data/file.txt"
 
     # test has_file
-    assert roc.has_file("ro-crate-metadata.json"), "Should have ro-crate-metadata.json file"
+    assert roc.has_file("data/ro-crate-metadata.json"), "Should have ro-crate-metadata.json file"
 
     # test get_file_content
-    content = roc.get_file_content("ro-crate-metadata.json")
+    content = roc.get_file_content("data/ro-crate-metadata.json")
     assert isinstance(content, bytes), "Content should be bytes"
 
 
@@ -261,8 +262,47 @@ def test_valid_local_rocrate():
 
 
 ################################
+#      ROCrateLocalFolder
+def test_valid_local_folder_rocrate_with_relative_root():
+    # set relative root path
+    relative_root_path = "custom-relative-root"
+    # create ROCrateLocalFolder with relative root path
+    roc = ROCrateLocalFolder(ValidROC().rocrate_with_relative_root,
+                             relative_root_path=relative_root_path)
+    assert isinstance(roc, ROCrateLocalFolder)
+    logger.debug("Testing bagit with relative root path: %s", relative_root_path)
+
+    # inspect ro-crate-metadata.json to confirm correct relative root path
+    assert roc.has_file("ro-crate-metadata.json"), "Should have ro-crate-metadata.json file"
+
+    metadata_path = roc.get_file_content("ro-crate-metadata.json", binary_mode=False)
+    logger.debug(f"ro-crate-metadata.json content: {metadata_path}")
+
+    # test has_file
+    assert roc.has_file("ro-crate-metadata.json"), "Should have ro-crate-metadata.json file"
+    assert roc.has_file("pics/2017-06-11%252012.56.14.jpg"), \
+        "Should have pics/2017-06-11%252012.56.14.jpg file"
+
+    # test get_file_content
+    content = roc.get_file_content("ro-crate-metadata.json")
+    assert isinstance(content, bytes), "Content should be bytes"
+
+    # check availability
+    metadata = roc.metadata
+    assert isinstance(metadata, ROCrateMetadata), "Metadata should be ROCrateMetadata"
+
+    # check availability
+    entity = metadata.get_entity("pics/2017-06-11%252012.56.14.jpg")
+    assert entity is not None, "Entity should be available"
+    logger.debug(f"Entity: {entity}")
+    assert entity.is_available(), "Entity should be available"
+
+
+################################
 #      ROCrateLocalZip
 ################################
+
+
 def test_valid_zip_rocrate():
     roc = ROCrateLocalZip(ValidROC().sort_and_change_archive)
     assert isinstance(roc, ROCrateLocalZip)
@@ -521,7 +561,8 @@ def test_entity_path_from_identifier():
 
     # Test quoted entity id which does not exist within the ro-crate
     quoted_entity_id = "pics/2018-06-11%2012.56.14.jpg"
-    path = ROCrateEntity.get_path_from_identifier(quoted_entity_id, rocrate_path=rocrate_path)
+    path = ROCrateEntity.get_path_from_identifier(
+        quoted_entity_id, rocrate_path=rocrate_path, decode=True)
     logger.debug(f"Quoted Entity Path: {path}")
     assert str(path) == f"{rocrate_path}/pics/2018-06-11 12.56.14.jpg", \
         "Path should be pics/2018-06-11 12.56.14.jpg"
