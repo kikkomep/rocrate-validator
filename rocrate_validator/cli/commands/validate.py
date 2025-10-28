@@ -136,6 +136,13 @@ def get_single_char(console: Optional[Console] = None, end: str = "\n",
 @cli.command("validate")
 @click.argument("rocrate-uri", callback=validate_uri, default=".")
 @click.option(
+    '-rr',
+    '--relative-root-path',
+    help="Use root-relative paths for all file references in the RO-Crate",
+    default=None,
+    show_default=True
+)
+@click.option(
     '-ff',
     '--fail-fast',
     is_flag=True,
@@ -261,6 +268,7 @@ def validate(ctx,
              requirement_severity_only: bool = False,
              skip_checks: list[str] = None,
              rocrate_uri: Path = ".",
+             relative_root_path: Optional[Path] = None,
              fail_fast: bool = False,
              no_paging: bool = False,
              verbose: bool = False,
@@ -320,6 +328,7 @@ def validate(ctx,
             "requirement_severity_only": requirement_severity_only,
             "enable_profile_inheritance": not disable_profile_inheritance,
             "rocrate_uri": rocrate_uri,
+            "rocrate_relative_root_path": relative_root_path,
             "abort_on_first": fail_fast,
             "skip_checks": skip_checks_list
         }
