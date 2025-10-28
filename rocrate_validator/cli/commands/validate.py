@@ -836,7 +836,7 @@ class ValidationReportLayout(Layout):
                 Padding("\n[bold]The following requirements have not meet: [/bold]", (0, 2)), style="white")
             for requirement in sorted(result.failed_requirements, key=lambda x: x.identifier):
                 console.print(
-                    Align(f"\n[profile: [magenta bold]{requirement.profile.name }[/magenta bold]]", align="right")
+                    Align(f"\n[profile: [magenta bold]{requirement.profile.name}[/magenta bold]]", align="right")
                 )
                 console.print(
                     Padding(
