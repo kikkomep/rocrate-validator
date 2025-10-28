@@ -37,7 +37,7 @@ class ValidROC:
 
     @property
     def rocrate_with_custom_terms(self) -> Path:
-        return VALID_CRATES_DATA_PATH / "rocrate_with_custom_terms"
+        return VALID_CRATES_DATA_PATH / "rocrate-with-custom-terms"
 
     @property
     def wrroc_paper(self) -> Path:
@@ -50,6 +50,10 @@ class ValidROC:
     @property
     def rocrate_with_value_objects(self) -> Path:
         return VALID_CRATES_DATA_PATH / "rocrate-with-value-objects"
+
+    @property
+    def rocrate_with_relative_root(self) -> Path:
+        return VALID_CRATES_DATA_PATH / "rocrate-relative-root"
 
     @property
     def bagit(self) -> Path:
