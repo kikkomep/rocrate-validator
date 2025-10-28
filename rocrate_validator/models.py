@@ -1641,6 +1641,8 @@ class ValidationSettings:
     """
     #: The URI of the RO-Crate
     rocrate_uri: URI
+    #: The relative root path of the RO-Crate
+    rocrate_relative_root_path: Optional[Path] = None
     # Profile settings
     #: The path to the profiles
     profiles_path: Path = DEFAULT_PROFILES_PATH
@@ -1993,7 +1995,8 @@ class ValidationContext:
         self._properties = {}
 
         # initialize the ROCrate object
-        self._rocrate = ROCrate.new_instance(settings.rocrate_uri)
+        self._rocrate = ROCrate.new_instance(settings.rocrate_uri,
+                                             relative_root_path=settings.rocrate_relative_root_path)
         assert isinstance(self._rocrate, ROCrate), "Invalid RO-Crate instance"
 
     @property
