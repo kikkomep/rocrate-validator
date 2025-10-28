@@ -33,7 +33,7 @@ class ValidROC:
 
     @property
     def rocrate_with_data_entities(self) -> Path:
-        return VALID_CRATES_DATA_PATH / "rocrate_with_data_entities"
+        return VALID_CRATES_DATA_PATH / "rocrate-with-data-entities"
 
     @property
     def rocrate_with_custom_terms(self) -> Path:
