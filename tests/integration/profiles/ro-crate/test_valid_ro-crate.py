@@ -49,6 +49,16 @@ def test_valid_roc_required_with_long_datetime():
     )
 
 
+def test_valid_roc_with_relative_root_required():
+    """Test a valid RO-Crate."""
+    do_entity_test(
+        ValidROC().rocrate_with_relative_root,
+        Severity.REQUIRED,
+        True,
+        rocrate_relative_root_path="custom-relative-root/"
+    )
+
+
 def test_valid_roc_remote_required():
     """Test a valid RO-Crate."""
     do_entity_test(
