@@ -533,8 +533,26 @@ class ROCrate(ABC):
             search_path = path
         return search_path, root_path
 
-    def __parse_path__(self, path: Path) -> Path:
-        """"
+    def __check_search_path__(self, path) -> tuple[Optional[Path], Optional[Path]]:
+        """ "
+        Check the search path relative to the RO-Crate root path.
+
+        :param path: the path to resolve
+        :type path: Path
+        :return: the search path if valid, None otherwise
+        :rtype: Path or None
+        """
+        if not self.relative_root_path:
+            return None, None
+
+        search_path, root_path = self.__get_search_path__(path)
+        # Check if the path has the substring 'data/' in it
+        has_sub_data_path = re.search(self.relative_root_path, str(search_path))
+        if not has_sub_data_path:
+            return search_path, root_path
+        return None, None
+
+        """ "
         Parse the given path to resolve it within the RO-Crate.
         :param path: the path to resolve
         :type path: Path
@@ -543,11 +561,52 @@ class ROCrate(ABC):
         """
         assert path, "Path cannot be None"
         # Resolve the path based on the RO-Crate location
-        rocrate_path = self.relative_root_path or self.uri.as_path() if self.uri.is_local_resource() else None
-        rocrate_path_arg = rocrate_path if not str(rocrate_path).endswith('.zip') else None
-        path = ROCrateEntity.get_path_from_identifier(str(path), rocrate_path=rocrate_path_arg)
+        rocrate_path = (
+            self.relative_root_path or self.uri.as_path()
+            if self.uri.is_local_resource()
+            else None
+        )
+        rocrate_path_arg = (
+            rocrate_path if not str(rocrate_path).endswith(".zip") else None
+        )
+        path = ROCrateEntity.get_path_from_identifier(
+            str(path), rocrate_path=rocrate_path_arg
+        )
         logger.debug("Resolved path: %s", path)
         return path
+
+    def __parse_path__(self, path: Path) -> Path:
+        """ "
+        Parse the given path to resolve it within the RO-Crate.
+        :param path: the path to resolve
+        :type path: Path
+        :return: the resolved path
+        :rtype: Path
+        """
+        assert path, "Path cannot be None"
+
+        # Resolve the path based on the RO-Crate location
+        rocrate_path = self.uri.as_path() if self.uri.is_local_resource() else None
+        rocrate_path_arg = (
+            rocrate_path if not str(rocrate_path).endswith(".zip") else None
+        )
+        paths_to_try = [path]
+        unquoted_path = Path(unquote(str(path)))
+        if str(path) != str(unquoted_path):
+            paths_to_try.append(unquoted_path)
+        for p in paths_to_try:
+            path_identifier = ROCrateEntity.get_path_from_identifier(
+                str(p), rocrate_path=rocrate_path_arg, decode=False
+            )
+            search_path, base_path = self.__check_search_path__(path_identifier)
+            if search_path and base_path:
+                if self.relative_root_path:
+                    path_identifier = base_path / self.relative_root_path / search_path
+                else:
+                    path_identifier = base_path / search_path
+                if path_identifier.exists():
+                    return path_identifier
+        return path_identifier
 
     def has_descriptor(self) -> bool:
         """
@@ -1032,13 +1091,11 @@ class ROCrateBagitLocalFolder(BagitROCrate, ROCrateLocalFolder):
 
     def __parse_path__(self, path: Path) -> Path:
         search_path, root_path = self.__check_search_path__(path)
-        logger.debug("The search path: %s (root: %s)", search_path, root_path)
         # if search_path and root_path are set, adjust the path
         if search_path and root_path:
-            path = root_path / Path('data') / search_path
-            logger.debug("Adjusted path of ROCrate is set to: %s", path)
-        else:
-            logger.debug("The relative root path is set to: %s", self.relative_root_path)
+            path = root_path / Path("data") / search_path
+            if not path.exists():
+                path = Path(unquote(str(path)))
         return path
 
 
@@ -1050,28 +1107,15 @@ class ROCrateBagitLocalZip(BagitROCrate, ROCrateLocalZip):
     def __parse_path__(self, path: Path) -> Path:
         # Extract the search path relative to the root of the RO-Crate root path
         search_path, _ = super().__check_search_path__(path)
-        logger.debug("The search path: %s", search_path)
 
         # if search_path is set, adjust the path
         if search_path:
-            path = Path('data') / search_path
-            logger.debug("Adjusted path of ROCrateLocalZip is set to: %s", path)
-        else:
-            logger.debug("The relative root path is set to: %s", self.relative_root_path)
+            path = Path("data") / search_path
+            zip_namelist = self._zipref.namelist()
+            if not str(path) in zip_namelist and not f"{path}/" in zip_namelist:
+                path = Path(unquote(str(path)))
         return path
 
 
-class ROCrateBagitRemoteZip(BagitROCrate, ROCrateRemoteZip):
-
-    def __parse_path__(self, path: Path) -> Path:
-        # Extract the search path relative to the root of the RO-Crate root path
-        search_path, _ = super().__check_search_path__(path)
-        logger.debug("The search path: %s -> %s", path, search_path)
-
-        # if search_path is set, adjust the path
-        if search_path:
-            path = Path('data') / search_path
-            logger.debug("Adjusted path of ROCrateLocalZip is set to: %s", path)
-        else:
-            logger.debug("The relative root path is set to: %s", self.relative_root_path)
-        return path
+class ROCrateBagitRemoteZip(ROCrateBagitLocalZip, ROCrateRemoteZip):
+    pass
