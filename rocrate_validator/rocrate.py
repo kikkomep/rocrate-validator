@@ -71,15 +71,22 @@ class ROCrateEntity:
 
     @classmethod
     def get_id_as_path(cls, entity_id: str, ro_crate: Optional[ROCrate] = None) -> Path:
-        result = cls.get_path_from_identifier(entity_id, ro_crate.uri.as_path()
-                                              if ro_crate and ro_crate.uri.is_local_resource() else None)
+        result = cls.get_path_from_identifier(
+            entity_id,
+            ro_crate.uri.as_path()
+            if ro_crate and ro_crate.uri.is_local_resource()
+            else None,
+        )
         return result
 
     @staticmethod
-    def get_path_from_identifier(identifier: str, rocrate_path: Optional[Union[str, Path]] = None) -> Path:
+    def get_path_from_identifier(
+        identifier: str,
+        rocrate_path: Optional[Union[str, Path]] = None,
+        decode: bool = None,
+    ) -> Path:
         """
         Get the path from an identifier.
-
 
         :param identifier: the identifier of the entity
         :type identifier: str
@@ -91,9 +98,10 @@ class ROCrateEntity:
         :rtype: Path
 
         """
+
         def __define_path__(path: str, decode: bool = False) -> Path:
             # ensure the path is a string and remove the file:// prefix
-            path = str(path).replace('file://', '')
+            path = str(path).replace("file://", "")
             # Decode the path if required
             if decode:
                 path = unquote(path)
@@ -106,21 +114,21 @@ class ROCrateEntity:
                 # set the base path
                 base_path = rocrate_path
                 if base_path is None:
-                    base_path = Path('./')
+                    base_path = Path("./")
                 elif not isinstance(base_path, Path):
                     base_path = Path(base_path)
                 # Check if the path if the root of the RO-Crate
-                if path == Path('./'):
+                if path == Path("./"):
                     return base_path
                 # if the path is relative, try to resolve it
                 return base_path / path.relative_to(base_path)
             except ValueError:
                 # if the path cannot be resolved, return the absolute path
                 return base_path / path
+
         # Define the path based on the identifier
-        path = __define_path__(identifier)
-        if not path.exists():
-            path = __define_path__(identifier, decode=True)
+        path = __define_path__(identifier, decode=decode)
+        logger.debug("Defined path '%s' from identifier '%s'", path, identifier)
         return path
 
     @property
@@ -148,11 +156,16 @@ class ROCrateEntity:
         return not self.has_absolute_path()
 
     def has_local_identifier(self) -> bool:
-        has_local_id = self.id.startswith('#') or \
-            f"{self.ro_crate.uri}/#" in self.id or \
-            f"file://{self.ro_crate.uri}/#" in self.id
-        logger.debug("Identifier '%s' is %s a local identifier", self.id,
-                     "" if has_local_id else " not")
+        has_local_id = (
+            self.id.startswith("#")
+            or f"{self.ro_crate.uri}/#" in self.id
+            or f"file://{self.ro_crate.uri}/#" in self.id
+        )
+        logger.debug(
+            "Identifier '%s' is %s a local identifier",
+            self.id,
+            "" if has_local_id else " not",
+        )
         return has_local_id
 
     def has_type(self, entity_type: str) -> bool:
