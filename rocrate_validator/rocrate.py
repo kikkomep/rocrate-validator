@@ -1124,7 +1124,7 @@ class ROCrateBagitLocalZip(BagitROCrate, ROCrateLocalZip):
         if search_path:
             path = Path("data") / search_path
             zip_namelist = self._zipref.namelist()
-            if not str(path) in zip_namelist and not f"{path}/" in zip_namelist:
+            if str(path) not in zip_namelist and f"{path}/" not in zip_namelist:
                 path = Path(unquote(str(path)))
         return path
 
