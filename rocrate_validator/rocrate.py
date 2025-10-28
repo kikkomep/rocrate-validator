@@ -217,27 +217,39 @@ class ROCrateEntity:
             if self.ro_crate.uri.is_local_resource():
                 # check if the file exists in the local file system
                 if isinstance(self.ro_crate, ROCrateLocalFolder):
-                    logger.debug("Checking the availability of a local entity in a local folder")
-                    return self.ro_crate.has_file(self.id_as_path) \
-                        or self.ro_crate.has_directory(self.id_as_path)
+                    logger.debug(
+                        "Checking the availability of a local entity in a local folder"
+                    )
+                    return self.ro_crate.has_file(
+                        self.id_as_path
+                    ) or self.ro_crate.has_directory(self.id_as_path)
                 # check if the file exists in the local zip file
                 if isinstance(self.ro_crate, ROCrateLocalZip):
-                    logger.debug("Checking the availability of a local entity in a local zip file")
+                    logger.debug(
+                        "Checking the availability of a local entity in a local zip file"
+                    )
                     # Skip the check for the root of a ZIP archive
                     if self.id == "./":
-                        logger.debug("Skipping the check for the presence of the Data Entity '%s' within the RO-Crate "
-                                     "as it is the root of a ZIP archive", self.id)
+                        logger.debug(
+                            "Skipping the check for the presence of the Data Entity '%s' within the RO-Crate "
+                            "as it is the root of a ZIP archive",
+                            self.id,
+                        )
                         return True
-                    return self.ro_crate.has_directory(unquote(str(self.id))) \
-                        or self.ro_crate.has_file(unquote(str(self.id)))
+                    return self.ro_crate.has_directory(
+                        unquote(str(self.id))
+                    ) or self.ro_crate.has_file(unquote(str(self.id)))
 
             # check if the entity is part of the remote RO-Crate
-            logger.debug("Checking the availability of a remote entity in a remote RO-Crate")
+            logger.debug(
+                "Checking the availability of a remote entity in a remote RO-Crate"
+            )
             if self.ro_crate.uri.is_remote_resource():
                 if self.id == "./":
                     return self.ro_crate.get_file_size(Path(self.id_as_uri())) > 0
-                return self.ro_crate.has_directory(unquote(str(self.id))) \
-                    or self.ro_crate.has_file(unquote(str(self.id)))
+                return self.ro_crate.has_directory(
+                    unquote(str(self.id))
+                ) or self.ro_crate.has_file(unquote(str(self.id)))
         except Exception as e:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.exception(e)
