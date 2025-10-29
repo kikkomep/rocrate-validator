@@ -1583,6 +1583,8 @@ class ValidationSettings:
     skip_checks: list[str] = None
     #: Flag to validate only the metadata of the RO-Crate
     metadata_only: bool = False
+    #: RO-Crate metadata as dictionary
+    metadata_dict: dict = None
 
     def __post_init__(self):
         # if requirement_severity is a str, convert to Severity
@@ -1904,8 +1906,11 @@ class ValidationContext:
         self._properties = {}
 
         # initialize the ROCrate object
-        self._rocrate = ROCrate.new_instance(settings.rocrate_uri,
-                                             relative_root_path=settings.rocrate_relative_root_path)
+        if settings.metadata_dict:
+            self._rocrate = ROCrate.from_metadata_dict(settings.metadata_dict)
+        else:
+            self._rocrate = ROCrate.new_instance(settings.rocrate_uri,
+                                                 relative_root_path=settings.rocrate_relative_root_path)
         assert isinstance(self._rocrate, ROCrate), "Invalid RO-Crate instance"
 
     @property
