@@ -282,10 +282,10 @@ class ROCrateEntity:
 class ROCrateMetadata:
     METADATA_FILE_DESCRIPTOR = "ro-crate-metadata.json"
 
-    def __init__(self, ro_crate: ROCrate) -> None:
+    def __init__(self, ro_crate: ROCrate, metadata_dict: Optional[dict] = None) -> None:
         self._ro_crate = ro_crate
-        self._dict = None
-        self._json: str = None
+        self._dict = metadata_dict
+        self._json: str = json.dumps(metadata_dict) if metadata_dict else None
 
     @property
     def ro_crate(self) -> ROCrate:
@@ -583,6 +583,7 @@ class ROCrate(ABC):
         unquoted_path = Path(unquote(str(path)))
         if str(path) != str(unquoted_path):
             paths_to_try.append(unquoted_path)
+        path_identifier = path
         for p in paths_to_try:
             path_identifier = ROCrateEntity.get_path_from_identifier(
                 str(p), rocrate_path=rocrate_path_arg, decode=False
@@ -709,6 +710,25 @@ class ROCrate(ABC):
         response = HttpRequester().head(str(uri))
         response.raise_for_status()
         return int(response.headers.get("Content-Length"))
+
+    @staticmethod
+    def from_metadata_dict(
+        metadata_dict: dict
+    ) -> "ROCrate":
+        """
+        Create a new instance of the RO-Crate based on the metadata dictionary.
+
+        :param metadata_dict: the metadata dictionary
+        :type metadata_dict: dict
+
+        :raises ROCrateInvalidURIError: if the URI is invalid
+        """
+        # create a new instance based on the URI
+        ro_crate = ROCrate(URI("./"), relative_root_path=None)
+
+        # override the metadata with the provided dictionary
+        ro_crate._metadata = ROCrateMetadata(ro_crate, metadata_dict=metadata_dict)
+        return ro_crate
 
     @staticmethod
     def new_instance(
