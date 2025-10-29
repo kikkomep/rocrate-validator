@@ -47,7 +47,8 @@ def do_entity_test(
         profile_identifier: str = DEFAULT_PROFILE_IDENTIFIER,
         rocrate_entity_patch: Optional[dict] = None,
         skip_checks: Optional[list[str]] = (),
-        rocrate_relative_root_path: Optional[str] = None
+        rocrate_relative_root_path: Optional[str] = None,
+        metadata_only: bool = False
 ):
     """
     Shared function to test a RO-Crate entity

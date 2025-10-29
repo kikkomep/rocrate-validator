@@ -88,3 +88,33 @@ def test_valid_local_multi_profile_crate():
     assert "provenance-run-crate-0.5" in profiles_ids, "Expected the 'provenance-run-crate' profile"
     assert "workflow-testing-ro-crate-0.1" in profiles_ids, \
         "Expected the 'workflow-testing-ro-crate-0.1' profile"
+
+
+def test_valid_crate_folder_with_metadata_only():
+    # Set the rocrate_uri to the WRROC paper RO-Crate
+    crate_path = ValidROC().wrroc_paper
+    logger.debug("Validating a local RO-Crate in metadata-only mode: %s", crate_path)
+
+    # Copy the ro-crate-metadata.json content only to a temporary folder
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        metadata_src = crate_path / "ro-crate-metadata.json"
+        metadata_dst = Path(tmpdirname) / "ro-crate-metadata.json"
+        shutil.copy(metadata_src, metadata_dst)
+
+        # Define shared settings object
+        settings = ValidationSettings(
+            rocrate_uri=Path(tmpdirname),
+            metadata_only=True
+        )
+
+        profiles = detect_profiles(settings)
+
+        logger.debug("Candidate profiles: %s", profiles)
+        # Check the number of detected profiles
+        assert len(profiles) == 1, "Expected a single profile"
+        # Check the detected profile
+        assert profiles[0].identifier == "ro-crate-1.1", "Expected the 'ro-crate' profile"
+
+        result = validate(settings)
+        assert result.passed(), "RO-Crate should be valid in metadata-only mode"
+
