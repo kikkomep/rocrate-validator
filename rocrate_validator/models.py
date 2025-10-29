@@ -1671,6 +1671,8 @@ class ValidationSettings:
     disable_check_for_duplicates: bool = False
     #: Checks to skip
     skip_checks: list[str] = None
+    #: Flag to validate only the metadata of the RO-Crate
+    metadata_only: bool = False
 
     def __post_init__(self):
         # if requirement_severity is a str, convert to Severity
