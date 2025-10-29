@@ -12,12 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
+import shutil
+import tempfile
 from pathlib import Path
 
 from rocrate_validator import log as logging
 from rocrate_validator.models import ValidationSettings
 from rocrate_validator.rocrate import ROCrateMetadata
-from rocrate_validator.services import detect_profiles, get_profiles
+from rocrate_validator.services import detect_profiles, get_profiles, validate
 from tests.ro_crates import InvalidMultiProfileROC, ValidROC
 
 # set up logging
@@ -147,3 +150,29 @@ def test_valid_crate_folder_with_metadata_only():
         result = validate(settings)
         assert result.passed(), "RO-Crate should be valid in metadata-only mode"
 
+
+def test_valid_crate_metadata_dict_with_metadata_only():
+    # Set the rocrate_uri to the WRROC paper RO-Crate
+    crate_path = ValidROC().wrroc_paper
+    logger.debug("Validating a local RO-Crate in metadata-only mode: %s", crate_path)
+
+    # Load the metadata dict from the RO-Crate
+    with open(crate_path / "ro-crate-metadata.json", "r") as f:
+        metadata_dict = json.loads(f.read())
+
+    # Define shared settings object
+    settings = ValidationSettings(
+        metadata_dict=metadata_dict
+    )
+
+    profiles = detect_profiles(settings)
+
+    logger.debug("Candidate profiles: %s", profiles)
+    # Check the number of detected profiles
+    assert len(profiles) == 1, "Expected a single profile"
+    # Check the detected profile
+    assert profiles[0].identifier == "ro-crate-1.1", "Expected the 'ro-crate' profile"
+
+    from rocrate_validator.services import validate_metadata_as_dict
+    result = validate_metadata_as_dict(metadata_dict, settings)
+    assert result.passed(), "RO-Crate should be valid in metadata-only mode"
