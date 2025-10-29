@@ -54,3 +54,24 @@ def test_valid_ro_crates_from_folder(valid_roc_path):
             [],
             metadata_only=True
         )
+
+
+@pytest.mark.parametrize("valid_roc_path", valid_roc_paths())
+def test_valid_ro_crates_from_metadata_dict(valid_roc_path):
+    """Test all valid RO-Crates using metadata dict."""
+    metadata_dict = None
+    # Load the metadata dict from the RO-Crate
+    if not isinstance(valid_roc_path, str):
+        with open(valid_roc_path / "ro-crate-metadata.json", "r") as f:
+            metadata_dict = json.load(f)
+        assert metadata_dict is not None, "Failed to load metadata dict"
+        assert isinstance(metadata_dict, dict), "Metadata dict is not a dictionary"
+        do_entity_test(
+            valid_roc_path,
+            models.Severity.REQUIRED,
+            True,
+            [],
+            [],
+            metadata_dict=metadata_dict,
+            metadata_only=True
+        )

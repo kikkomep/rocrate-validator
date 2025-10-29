@@ -100,3 +100,7 @@ def test_validation_settings_metadata_only():
     assert settings.metadata_only is False
 
 
+def test_validation_settings_metadata_dict():
+    metadata = {"@graph": []}
+    settings = ValidationSettings(metadata_dict=metadata)
+    assert settings.metadata_dict == metadata
