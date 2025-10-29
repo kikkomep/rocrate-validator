@@ -41,6 +41,26 @@ def detect_profiles(settings: Union[dict, ValidationSettings]) -> list[Profile]:
     return profiles
 
 
+def validate_metadata_as_dict(
+        metadata_dict: dict,
+        settings: Union[dict, ValidationSettings],
+        subscribers: Optional[list[Subscriber]] = None) -> ValidationResult:
+    """
+    Validate the RO-Crate metadata only against a profile and return the validation result.
+    """
+    assert metadata_dict is not None, "Metadata dictionary cannot be None"
+    assert isinstance(metadata_dict, dict), "Metadata must be a dictionary"
+    # set the RO-Crate metadata dictionary in the settings
+    if isinstance(settings, dict):
+        settings["metadata_dict"] = metadata_dict
+        settings["metadata_only"] = True
+    else:
+        settings.metadata_dict = metadata_dict
+        settings.metadata_only = True
+    # validate the RO-Crate metadata
+    return validate(settings, subscribers)
+
+
 def validate(settings: Union[dict, ValidationSettings],
              subscribers: Optional[list[Subscriber]] = None) -> ValidationResult:
     """
@@ -77,9 +97,9 @@ def __initialise_validator__(settings: Union[dict, ValidationSettings],
     logger.debug("Validating RO-Crate: %s", rocrate_path)
 
     # check if the RO-Crate exists
-    if not getattr(settings, "metadata_only", False):
-    if not rocrate_path.is_available():
-        raise FileNotFoundError(f"RO-Crate not found: {rocrate_path}")
+    if not getattr(settings, "metadata_only", False) and getattr(settings, "metadata_dict", None) is None:
+        if not rocrate_path.is_available():
+            raise FileNotFoundError(f"RO-Crate not found: {rocrate_path}")
 
     # check if remote validation is enabled
     disable_remote_crate_download = settings.disable_remote_crate_download
