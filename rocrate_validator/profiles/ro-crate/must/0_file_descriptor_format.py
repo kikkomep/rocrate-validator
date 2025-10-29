@@ -33,6 +33,9 @@ class FileDescriptorExistence(PyFunctionCheck):
         """
         Check if the file descriptor is present in the RO-Crate
         """
+        if context.settings.metadata_only:
+            logger.debug("Skipping file descriptor existence check in metadata-only mode")
+            return True
         if not context.ro_crate.has_descriptor():
             message = f'file descriptor "{context.rel_fd_path}" is not present'
             context.result.add_issue(message, self)
@@ -44,6 +47,9 @@ class FileDescriptorExistence(PyFunctionCheck):
         """
         Check if the file descriptor is not empty
         """
+        if context.settings.metadata_only:
+            logger.debug("Skipping file descriptor existence check in metadata-only mode")
+            return True
         if not context.ro_crate.has_descriptor():
             message = f'file descriptor {context.rel_fd_path} is empty'
             context.result.add_issue(message, self)
