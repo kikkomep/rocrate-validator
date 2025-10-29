@@ -77,6 +77,7 @@ def __initialise_validator__(settings: Union[dict, ValidationSettings],
     logger.debug("Validating RO-Crate: %s", rocrate_path)
 
     # check if the RO-Crate exists
+    if not getattr(settings, "metadata_only", False):
     if not rocrate_path.is_available():
         raise FileNotFoundError(f"RO-Crate not found: {rocrate_path}")
 
