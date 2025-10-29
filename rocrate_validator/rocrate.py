@@ -547,7 +547,7 @@ class ROCrate(ABC):
 
     def __check_search_path__(self, path) -> tuple[Optional[Path], Optional[Path]]:
         """ "
-        Check the search path relative to the RO-Crate root path.
+        Extract the search path if it does not contain the relative root path.
 
         :param path: the path to resolve
         :type path: Path
@@ -558,34 +558,11 @@ class ROCrate(ABC):
             return None, None
 
         search_path, root_path = self.__get_search_path__(path)
-        # Check if the path has the substring 'data/' in it
+        # Check if the path has the substring 'relative_root_path/' in it
         has_sub_data_path = re.search(self.relative_root_path, str(search_path))
         if not has_sub_data_path:
             return search_path, root_path
         return None, None
-
-        """ "
-        Parse the given path to resolve it within the RO-Crate.
-        :param path: the path to resolve
-        :type path: Path
-        :return: the resolved path
-        :rtype: Path
-        """
-        assert path, "Path cannot be None"
-        # Resolve the path based on the RO-Crate location
-        rocrate_path = (
-            self.relative_root_path or self.uri.as_path()
-            if self.uri.is_local_resource()
-            else None
-        )
-        rocrate_path_arg = (
-            rocrate_path if not str(rocrate_path).endswith(".zip") else None
-        )
-        path = ROCrateEntity.get_path_from_identifier(
-            str(path), rocrate_path=rocrate_path_arg
-        )
-        logger.debug("Resolved path: %s", path)
-        return path
 
     def __parse_path__(self, path: Path) -> Path:
         """ "
