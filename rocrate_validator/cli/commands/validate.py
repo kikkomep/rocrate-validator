@@ -143,6 +143,14 @@ def get_single_char(console: Optional[Console] = None, end: str = "\n",
     show_default=True
 )
 @click.option(
+    '-m',
+    '--metadata-only',
+    is_flag=True,
+    help="Validate only the metadata of the RO-Crate",
+    default=False,
+    show_default=True
+)
+@click.option(
     '-ff',
     '--fail-fast',
     is_flag=True,
@@ -270,6 +278,7 @@ def validate(ctx,
              profiles_path: Path = DEFAULT_PROFILES_PATH,
              extra_profiles_path: Optional[Path] = None,
              profile_identifier: Optional[str] = None,
+             metadata_only: bool = False,
              no_auto_profile: bool = False,
              disable_profile_inheritance: bool = False,
              requirement_severity: str = Severity.REQUIRED.name,
@@ -340,7 +349,8 @@ def validate(ctx,
             "rocrate_uri": rocrate_uri,
             "rocrate_relative_root_path": relative_root_path,
             "abort_on_first": fail_fast,
-            "skip_checks": skip_checks_list
+            "skip_checks": skip_checks_list,
+            "metadata_only": metadata_only
         }
 
         # Print the application header
