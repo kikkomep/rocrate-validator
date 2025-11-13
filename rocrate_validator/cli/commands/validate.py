@@ -14,36 +14,30 @@
 
 from __future__ import annotations
 
-import json
 import os
 import sys
 from pathlib import Path
 from typing import Optional
 
-from InquirerPy import prompt
-from InquirerPy.base.control import Choice
-from rich.align import Align
-from rich.layout import Layout
-from rich.live import Live
-from rich.markdown import Markdown
+import rich_click as click
 from rich.padding import Padding
-from rich.pager import Pager
-from rich.panel import Panel
-from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
 from rich.rule import Rule
 
 import rocrate_validator.log as logging
 from rocrate_validator import services
 from rocrate_validator.cli.commands.errors import handle_error
-from rocrate_validator.cli.main import cli, click
-from rocrate_validator.cli.utils import Console, get_app_header_rule
-from rocrate_validator.colors import get_severity_color
+from rocrate_validator.cli.main import cli
+from rocrate_validator.cli.ui.text.validate import ValidationCommandView
 from rocrate_validator.errors import ROCrateInvalidURIError
-from rocrate_validator.events import Event, EventType, Subscriber
-from rocrate_validator.models import (CustomEncoder, LevelCollection, Profile,
-                                      Severity, ValidationResult)
-from rocrate_validator.utils import (URI, get_profiles_path,
-                                     validate_rocrate_uri)
+from rocrate_validator.io.input import get_single_char, multiple_choice
+from rocrate_validator.io.output.console import BufferedConsole, Console
+from rocrate_validator.io.output.json import JSONOutputFormatter
+from rocrate_validator.io.output.text import TextOutputFormatter
+from rocrate_validator.io.output.text.layout.report import (
+    LiveTextProgressLayout, get_app_header_rule)
+from rocrate_validator.models import (Severity, ValidationResult,
+                                      ValidationSettings)
+from rocrate_validator.utils import get_profiles_path, validate_rocrate_uri
 
 # from rich.markdown import Markdown
 # from rich.table import Table
@@ -343,55 +337,35 @@ def validate(ctx,
         is_valid = True
         results = {}
         for profile in profile_identifier:
+            # Duplicate settings for each profile and set the profile identifier
+            logger.info("\nValidating RO-Crate against profile: [bold cyan]%s[/bold cyan]", profile)
+            validation_settings = validation_settings.copy()
             # Set the selected profile
             validation_settings["profile_identifier"] = profile
             logger.debug("Profile selected for validation: %s", validation_settings["profile_identifier"])
             logger.debug("Profile autodetected: %s", autodetection)
 
-            # Compute the profile statistics
-            profile_stats = __compute_profile_stats__(validation_settings)
-
-            report_layout = ValidationReportLayout(console, validation_settings,
-                                                   profile_stats, None, profile_autodetected=autodetection)
-
-            # set target profile for the progress monitor
-            severity_validation = Severity.get(validation_settings.get("requirement_severity"))
-            target_profile = services.get_profile(profile,
-                                                  validation_settings.get("profiles_path"),
-                                                  severity=severity_validation)
-            report_layout.progress_monitor.target_validation_profile = target_profile
-
-            # Validate RO-Crate against the profile and get the validation result
+            # Initialize the validation result variable
             result: ValidationResult = None
-            if output_format == "text":
-                console.disabled = output_file is not None
-                result: ValidationResult = report_layout.live(
-                    lambda: services.validate(
-                        validation_settings,
-                        subscribers=[report_layout.progress_monitor]
-                    )
-                )
-                console.disabled = False
-            else:
-                result: ValidationResult = services.validate(
-                    validation_settings
-                )
-                results[profile] = result
 
-            # store the cumulative validation result
-            is_valid = is_valid and result.passed(LevelCollection.get(requirement_severity).severity)
-
-            # Uncomment the following lines to debug the validation process
-            # for c in profile_stats["checks"]:
-            # logger.debug("Check: %s", c)
-            # logger.debug("Failed checks: %r", profile_stats["failed_checks"])
-            # logger.debug("Passed checks: %r", profile_stats["passed_checks"])
-            # if c.identifier not in [_.identifier for _ in profile_stats["failed_checks"]] and \
-            #         c.identifier not in [_.identifier for _ in profile_stats["passed_checks"]]:
-            #     logger.debug("Skipped check : %s", c.identifier)
-
-            # Print the validation result
+            #########################################################################################
+            # Perform and display the validation with progress bar to the console
+            #########################################################################################
+            # Perform the validation and get the validation result
             if output_format == "text" and not output_file:
+                # Initialize the command view for text output
+                command_view = ValidationCommandView(
+                    validation_settings=ValidationSettings.parse(validation_settings),
+                    console=console,
+                    interactive=interactive,
+                    no_paging=not enable_pager,
+                    pager=pager
+                )
+
+                # Validate RO-Crate against the profile and get the validation result
+                result = command_view.show_validation_progress(services.validate)
+
+                # Print the validation result
                 if not result.passed():
                     verbose_choice = "n"
                     if interactive and not verbose:
@@ -401,46 +375,92 @@ def validate(ctx,
                             "([magenta]y/n[/magenta]): [/bold]"
                         ))
                     if verbose_choice == "y" or verbose:
-                        report_layout.show_validation_details(pager, enable_pager=enable_pager)
+                        command_view.display_validation_result(result)
 
-            # Print the textual validation report to a file
-            if output_file and output_format == "text":
-                with open(output_file, "w") as f:
-                    c = Console(file=f, color_system=None, width=output_line_width, height=31)
-                    c.print(report_layout.layout)
-                    report_layout.console = c
-                    if not result.passed() and verbose:
-                        report_layout.show_validation_details(None, enable_pager=False)
+            ###########################################################################################
+            # Perform the validation without progress bar (for JSON output or text output to file)
+            ###########################################################################################
+            else:
+                # Notify the start of the validation
+                if interactive:
+                    with LiveTextProgressLayout(
+                        console=console,
+                        profile_identifier=profile,
+                        validation_settings=validation_settings,
+                        callable_service=services.validate,
+                        transient=True
+                    ) as result:
+                        logger.debug("Validation result obtained")
+                else:
+                    # Validate RO-Crate against the profile and get the validation result
+                    result: ValidationResult = services.validate(validation_settings)
+                results[profile] = result
+
+                # Print the textual validation report to a file
+                if output_file and output_format == "text":
+                    if interactive:
+                        console.print(f"\n{' '*2}📝 [bold]Writing validation results to file[/bold]{"."*4} ", end="")
+                    out = BufferedConsole(color_system=None, width=output_line_width, height=31)
+                    if output_format == "text":
+                        out.register_formatter(TextOutputFormatter())
+                        # Print the report layout
+                        out.print(result.statistics)  # Output the statistics first
+                        if not result.passed() and verbose:
+                            out.print(result)
+                        out.flush_to_file(output_file)
+                    if interactive:
+                        console.print(f"[bold green]{output_file}[/bold green]", end="\n")
+
+            # Update the global validation status
+            is_valid = is_valid and result.passed()
 
             # Interrupt the validation if the fail fast mode is enabled
             if fail_fast and not is_valid:
                 break
 
+        ###################################################################
+        # ############## JSON OUTPUT FORMAT PROCESSING ################## #
+        ###################################################################
         # Process JSON output format
         if output_format == "json":
-            # Init the JSON output
-            json_output = results[profile_identifier[0]].to_dict()
-            # Init issues list
-            if not json_output.get("issues", None):
-                json_output["issues"] = []
-            # Always remove the property "profile identifier"
-            json_output["validation_settings"].pop("profile_identifier")
-            # Set the list of validation profiles
-            json_output["validation_settings"]["profile_identifiers"] = profile_identifier
-            # Set the list of validation profiles
-            if len(results) > 1:
-                for i in range(1, len(profile_identifier)):
-                    result_i: ValidationResult = results[profile_identifier[i]]
-                    json_output["passed"] = json_output["passed"] and result_i.passed()
-                    if result_i.has_issues():
-                        json_output["issues"].extend(result_i.to_dict().get("issues"))
-            # Print the validation report to the console
+            # Notify completion of the validation
+            if interactive:
+                if is_valid:
+                    console.print(
+                        f"\n{' '*2}✅ [bold]Validation [green]PASSED![/green]. "
+                        f"\n{' '*5}RO-Crate is valid according to the profile(s): "
+                        f"[cyan]{', '.join(profile_identifier)}[/cyan][/bold]"
+                    )
+                else:
+                    console.print(f"\n{' '*2}❌ [bold]Validation [red]FAILED![/red][/bold]")
+            # Notify the start of JSON output generation
+            if interactive:
+                if output_file:
+                    console.print(
+                        f"\n{' '*2}📝 [bold]Writing validation results in JSON format "
+                        f"to the file \"{output_file}\"[/bold]{"."*4} ",
+                        end=""
+                    )
+                else:
+                    console.print(f"\n{' '*2}📋 [bold]The validation report in JSON format: [/bold]\n")
+            # Generate the JSON output
+            out = BufferedConsole(color_system=None, width=output_line_width)
+            out.register_formatter(JSONOutputFormatter(settings={"verbose": verbose}))
+            out.print(results)
+            json_output = out.get_buffered_output()
+            # Print the JSON validation report to the console
+            # pretty print the JSON output
             if not output_file:
-                console.print(json.dumps(json_output, indent=4, cls=CustomEncoder))
-            # Print the validation report to a file
+                console.print(json_output)
+            # Print the JSON validation report to a file
             if output_file:
                 with open(output_file, "w") as f:
-                    f.write(json.dumps(json_output, indent=4, cls=CustomEncoder))
+                    f.write(json_output)
+            if interactive and output_file:
+                console.print("[bold]DONE![/bold]", end="\n\n")
+        ################################################################################
+        # Exit with appropriate status code
+        ################################################################################
 
         # using ctx.exit seems to raise an Exception that gets caught below,
         # so we use sys.exit instead.
