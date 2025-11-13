@@ -19,7 +19,6 @@ from pathlib import Path
 from typing import Optional, Union
 
 import rocrate_validator.log as logging
-from rocrate_validator.errors import ProfileNotFound
 from rocrate_validator.events import Subscriber
 from rocrate_validator.models import (Profile, Severity, ValidationResult,
                                       ValidationSettings, Validator)
@@ -243,8 +242,4 @@ def get_profile(profile_identifier: str,
     """
     profiles = get_profiles(profiles_path, severity=severity,
                             allow_requirement_check_override=allow_requirement_check_override)
-    profile = next((p for p in profiles if p.identifier == profile_identifier), None) or \
-        next((p for p in profiles if str(p.identifier).replace(f"-{p.version}", '') == profile_identifier), None)
-    if not profile:
-        raise ProfileNotFound(profile_identifier)
-    return profile
+    return Profile.find_in_list(profiles, profile_identifier)

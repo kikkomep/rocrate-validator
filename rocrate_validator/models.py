@@ -732,6 +732,27 @@ class Profile:
         """
         return cls.__profiles_map.values()
 
+    @classmethod
+    def find_in_list(cls, profiles: Collection[Profile],
+                     profile_identifier: str) -> Optional[Profile]:
+        """
+        Find a profile with the given identifier in the given list of profiles
+
+        :param profiles: the list of profiles
+        :type profiles: Collection[Profile]
+
+        :param identifier: the identifier
+        :type identifier: str
+
+        :return: the profile if found, None otherwise
+        :rtype: Optional[Profile]
+        """
+        profile = next((p for p in profiles if p.identifier == profile_identifier), None) or \
+            next((p for p in profiles if str(p.identifier).replace(f"-{p.version}", '') == profile_identifier), None)
+        if not profile:
+            raise ProfileNotFound(profile_identifier)
+        return profile
+
 
 class SkipRequirementCheck(Exception):
     def __init__(self, check: RequirementCheck, message: str = ""):
