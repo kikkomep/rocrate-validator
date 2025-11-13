@@ -22,9 +22,10 @@ import re
 from abc import ABC, abstractmethod
 from collections.abc import Collection
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from functools import total_ordering
 from pathlib import Path
-from typing import Optional, Tuple, Union
+from typing import Optional, Protocol, Tuple, Union
 from urllib.error import HTTPError
 
 import enum_tools
@@ -45,7 +46,7 @@ from rocrate_validator.errors import (DuplicateRequirementCheck,
                                       ProfileSpecificationError,
                                       ProfileSpecificationNotFound,
                                       ROCrateMetadataNotFoundError)
-from rocrate_validator.events import Event, EventType, Publisher
+from rocrate_validator.events import Event, EventType, Publisher, Subscriber
 from rocrate_validator.rocrate import ROCrate
 from rocrate_validator.utils import (URI, MapIndex, MultiIndexMap,
                                      get_profiles_path,
@@ -2591,49 +2592,58 @@ class Validator(Publisher):
 
         try:
 
-        # set the profiles to validate against
-        profiles = context.profiles
-        assert len(profiles) > 0, "No profiles to validate"
-        self.notify(EventType.VALIDATION_START)
-        for profile in profiles:
-            logger.debug("Validating profile %s (id: %s)", profile.name, profile.identifier)
+            # set the profiles to validate against
+            profiles = context.profiles
+            assert len(profiles) > 0, "No profiles to validate"
+            self.notify(EventType.VALIDATION_START)
+            for profile in profiles:
+                logger.debug("Validating profile %s (id: %s)", profile.name, profile.identifier)
                 # set the target profile in the context
                 context._target_validation_profile = profile
-            self.notify(ProfileValidationEvent(EventType.PROFILE_VALIDATION_START, profile=profile))
-            # perform the requirements validation
-            requirements = profile.get_requirements(
-                context.requirement_severity, exact_match=context.requirement_severity_only)
-            logger.debug("Validating profile %s with %s requirements", profile.identifier, len(requirements))
-            logger.debug("For profile %s, validating these %s requirements: %s",
-                         profile.identifier, len(requirements), requirements)
-            terminate = False
-            for requirement in requirements:
-                if not requirement.overridden:
-                    self.notify(RequirementValidationEvent(
-                        EventType.REQUIREMENT_VALIDATION_START, requirement=requirement))
-                passed = requirement._do_validate_(context)
-                logger.debug("Requirement %s passed: %s", requirement.identifier, passed)
-                if not requirement.overridden:
-                    self.notify(RequirementValidationEvent(
-                        EventType.REQUIREMENT_VALIDATION_END, requirement=requirement, validation_result=passed))
-                if passed:
-                    logger.debug("Validation Requirement passed")
-                else:
-                    logger.debug(f"Validation Requirement {requirement} failed (profile: {profile.identifier})")
-                    if context.fail_fast:
-                        logger.debug("Aborting on first requirement failure")
-                        terminate = True
-                        break
-            self.notify(ProfileValidationEvent(EventType.PROFILE_VALIDATION_END, profile=profile))
-            if terminate:
-                break
-        self.notify(ValidationEvent(EventType.VALIDATION_END,
-                    validation_result=context.result))
+                self.notify(ProfileValidationEvent(EventType.PROFILE_VALIDATION_START, profile=profile))
+                # perform the requirements validation
+                requirements = profile.get_requirements(
+                    context.requirement_severity, exact_match=context.requirement_severity_only)
+                logger.debug("Validating profile %s with %s requirements", profile.identifier, len(requirements))
+                logger.debug("For profile %s, validating these %s requirements: %s",
+                             profile.identifier, len(requirements), requirements)
+                terminate = False
+                for requirement in requirements:
+                    if not requirement.overridden:
+                        self.notify(RequirementValidationEvent(
+                            EventType.REQUIREMENT_VALIDATION_START, requirement=requirement))
+                    passed = requirement._do_validate_(context)
+                    logger.debug("Requirement %s passed: %s", requirement.identifier, passed)
+                    if not requirement.overridden:
+                        self.notify(RequirementValidationEvent(
+                            EventType.REQUIREMENT_VALIDATION_END, requirement=requirement, validation_result=passed))
+                    if passed:
+                        logger.debug("Validation Requirement passed")
+                    else:
+                        logger.debug(f"Validation Requirement {requirement} failed (profile: {profile.identifier})")
+                        if context.fail_fast:
+                            logger.debug("Aborting on first requirement failure")
+                            terminate = True
+                            break
+                self.notify(ProfileValidationEvent(EventType.PROFILE_VALIDATION_END, profile=profile))
+                if terminate:
+                    break
+            self.notify(ValidationEvent(EventType.VALIDATION_END,
+                        validation_result=context.result))
 
-        return context.result
+            return context.result
         finally:
             # clear the current context
             self.__current_context__ = None
+
+    def notify(self, event: Union[Event, EventType]):
+        """ Override notify to update statistics """
+        assert self.__current_context__ is not None, "No current validation context"
+        result: ValidationResult = self.__current_context__.result
+        if isinstance(event, EventType):
+            event = Event(event)
+        result.statistics.update(event, ctx=self.__current_context__)
+        return super().notify(event, ctx=self.__current_context__)
 
 
 class ValidationContext:
