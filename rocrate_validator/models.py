@@ -2424,6 +2424,8 @@ class Validator(Publisher):
     def __init__(self, settings: Union[str, ValidationSettings]):
         self._validation_settings = ValidationSettings.parse(settings)
         super().__init__()
+        # initialize the current context
+        self.__current_context__ = None
 
     @property
     def validation_settings(self) -> ValidationSettings:
@@ -2491,6 +2493,10 @@ class Validator(Publisher):
 
         # initialize the validation context
         context = ValidationContext(self, self.validation_settings)
+        # register the current context
+        self.__current_context__ = context
+
+        try:
 
         # set the profiles to validate against
         profiles = context.profiles
@@ -2498,6 +2504,8 @@ class Validator(Publisher):
         self.notify(EventType.VALIDATION_START)
         for profile in profiles:
             logger.debug("Validating profile %s (id: %s)", profile.name, profile.identifier)
+                # set the target profile in the context
+                context._target_validation_profile = profile
             self.notify(ProfileValidationEvent(EventType.PROFILE_VALIDATION_START, profile=profile))
             # perform the requirements validation
             requirements = profile.get_requirements(
@@ -2530,6 +2538,9 @@ class Validator(Publisher):
                     validation_result=context.result))
 
         return context.result
+        finally:
+            # clear the current context
+            self.__current_context__ = None
 
 
 class ValidationContext:
@@ -2546,6 +2557,8 @@ class ValidationContext:
         self._data_graph = None
         # reference to the profiles
         self._profiles = None
+        # reference to the target profile
+        self._target_validation_profile = None
         # reference to the validation result
         self._result = None
         # additional properties for the context
@@ -2820,6 +2833,16 @@ class ValidationContext:
         if not self._profiles:
             self._profiles = self.__load_profiles__()
         return self._profiles.copy()
+
+    @property
+    def target_validation_profile(self) -> Profile:
+        """
+        The target validation profile to validate against
+
+        :return: The target validation profile
+        :rtype: Profile
+        """
+        return self._target_validation_profile
 
     @property
     def target_profile(self) -> Profile:
