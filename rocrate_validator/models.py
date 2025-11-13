@@ -1956,6 +1956,8 @@ class ValidationResult:
         self._executed_checks_results: dict[str, bool] = {}
         # keep track of the checks that have been skipped
         self._skipped_checks: set[RequirementCheck] = set()
+        # initialize the statistics
+        self._statistics = ValidationStatistics(context.settings)
 
     @property
     def context(self) -> ValidationContext:
@@ -1978,7 +1980,14 @@ class ValidationResult:
         """
         return self._validation_settings
 
+    @property
+    def statistics(self) -> ValidationStatistics:
+        """
+        The validation statistics
+        """
+        return self._statistics
     # --- Checks ---
+
     @property
     def executed_checks(self) -> set[RequirementCheck]:
         """
