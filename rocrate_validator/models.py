@@ -2328,6 +2328,11 @@ class ValidationSettings:
         """
         result = asdict(self)
         result['rocrate_uri'] = str(self.rocrate_uri)
+        result.pop('metadata_dict', None)  # exclude metadata_dict from the dict representation
+        # Remove disable_crate_download from the dict representation
+        result.pop('disable_remote_crate_download', None)
+        # Remove requirement_severity_only from the dict representation
+        result.pop('requirement_severity_only', None)
         return result
 
     @property
