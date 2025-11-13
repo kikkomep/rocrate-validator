@@ -44,15 +44,3 @@ def format_text(text: str,
 def get_app_header_rule() -> Text:
     return Padding(Rule(f"\n[bold][cyan]ROCrate Validator[/cyan] (ver. [magenta]{get_version()}[/magenta])[/bold]",
                         style="bold cyan"), (1, 2))
-
-
-class Console(BaseConsole):
-    """Rich console that can be disabled."""
-
-    def __init__(self, *args, disabled: bool = False,  **kwargs):
-        super().__init__(*args, **kwargs)
-        self.disabled = disabled
-
-    def print(self, *args, **kwargs):
-        if not self.disabled:
-            super().print(*args, **kwargs)
