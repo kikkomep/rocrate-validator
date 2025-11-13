@@ -72,19 +72,21 @@ def test_validate_subcmd_invalid_local_archive_rocrate(cli_runner: CliRunner):
 
 def test_validate_skip_checks_option(cli_runner: CliRunner):
     # Patch the validation service to capture the skip_checks argument
-    called_args = {}
+    called_args = []
+    called_kwargs = {}
 
     def mock_validate(*args, **kwargs):
         nonlocal called_args  # noqa: F824
 
-        for arg in args:
-            if isinstance(arg, dict):
-                called_args.update(arg)
+        logger.warning(f"Mock validate called with args: {args}, kwargs: {kwargs}")
 
-        called_args.update(kwargs)
+        called_args.extend(args)
+        called_kwargs.update(kwargs)
+
         logger.debug(f"Args: {args}")
         logger.debug(f"Kwargs: {kwargs}")
         logger.debug(f"Called args: {called_args}")
+        logger.debug(f"Called kwargs: {called_kwargs}")
 
     with patch('rocrate_validator.cli.commands.validate.services.validate') as mock_validate_rocrate:
         mock_validate_rocrate.return_value = None
@@ -106,8 +108,9 @@ def test_validate_skip_checks_option(cli_runner: CliRunner):
         # because the validation service is mocked and does not return a valid result
         assert result.exit_code == 2
         # Check if 'skip_checks' is in the called arguments
-        assert 'skip_checks' in called_args
-        logger.debug(f"Called args: {called_args}")
+        settings = called_args[0]
+        assert settings.skip_checks is not None, "skip_checks should not be None"
+
         # Check if the skip_checks value matches the expected value
         assert list(skip_checks_1 + skip_checks_2) == called_args['skip_checks']
 
