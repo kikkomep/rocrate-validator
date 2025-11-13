@@ -399,7 +399,7 @@ def validate(ctx,
                 # Print the textual validation report to a file
                 if output_file and output_format == "text":
                     if interactive:
-                        console.print(f"\n{' '*2}📝 [bold]Writing validation results to file[/bold]{"."*4} ", end="")
+                        console.print(f"\n{' '*2}📝 [bold]Writing validation results to file[/bold]{'.'*4} ", end="")
                     out = BufferedConsole(color_system=None, width=output_line_width, height=31)
                     if output_format == "text":
                         out.register_formatter(TextOutputFormatter())
@@ -438,7 +438,7 @@ def validate(ctx,
                 if output_file:
                     console.print(
                         f"\n{' '*2}📝 [bold]Writing validation results in JSON format "
-                        f"to the file \"{output_file}\"[/bold]{"."*4} ",
+                        f"to the file \"{output_file}\"[/bold]{'.'*4} ",
                         end=""
                     )
                 else:
