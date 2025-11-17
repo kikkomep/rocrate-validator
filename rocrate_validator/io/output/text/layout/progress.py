@@ -31,22 +31,40 @@ class ProgressMonitor(Subscriber):
     REQUIREMENT_VALIDATION = "Requirements"
     REQUIREMENT_CHECK_VALIDATION = "Requirements Checks"
 
-    def __init__(self, settings: dict):
+    def __init__(self, settings: dict, stats: Optional[ValidationStatistics] = None):
         self.__progress = Progress(
             TextColumn("[progress.description]{task.description}"),
             BarColumn(),
             TextColumn("{task.completed}/{task.total}"),
             TimeElapsedColumn(),
             expand=True)
-        stats = ValidationStatistics(settings)
+        # Initialize statistics
+        stats = stats or ValidationStatistics(settings)
+        self.initial_state = stats
+        # Store settings
         self.settings = settings
+        # Initialize progress tasks
         self.profile_validation = self.progress.add_task(
             self.PROFILE_VALIDATION, total=len(stats.profiles))
         self.requirement_validation = self.progress.add_task(
             self.REQUIREMENT_VALIDATION, total=stats.total_requirements)
         self.requirement_check_validation = self.progress.add_task(
             self.REQUIREMENT_CHECK_VALIDATION, total=stats.total_checks)
+
+        # Initialize the Subscriber
         super().__init__("ProgressMonitor")
+
+        # Initialize progress according to current statistics
+        self.__initialize__(stats)
+
+    def __initialize__(self, stats: ValidationStatistics):
+        """Initialize the progress monitor according to the current statistics."""
+        self.progress.update(task_id=self.profile_validation,
+                             advance=len(stats.validated_profiles))
+        self.progress.update(task_id=self.requirement_validation,
+                             advance=len(stats.validated_requirements))
+        self.progress.update(task_id=self.requirement_check_validation,
+                             advance=len(stats.validated_checks))
 
     def start(self):
         self.progress.start()
