@@ -76,7 +76,7 @@ class ValidationReportLayout(Layout):
     @property
     def progress_monitor(self) -> ProgressMonitor:
         if not self.__progress_monitor:
-            self.__progress_monitor = ProgressMonitor(self.validation_settings)
+            self.__progress_monitor = ProgressMonitor(self.validation_settings, self.statistics)
         return self.__progress_monitor
 
     def live(self, update_callable: callable) -> any:
@@ -165,6 +165,11 @@ class ValidationReportLayout(Layout):
         # Update the layout with the profile stats
         self.update_stats(
             self.statistics or ValidationStatistics(self.validation_settings)
+        )
+
+        # Show the overall result if available
+        self.__show_overall_result__(
+            self.result or self.statistics.validation_result
         )
 
     def update(self, event: Event, ctx: Optional[ValidationContext] = None):
