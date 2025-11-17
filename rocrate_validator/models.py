@@ -1472,6 +1472,27 @@ class ValidationStatistics(Subscriber):
         return len(self._stats.get("checks", []))
 
     @property
+    def validated_profiles(self) -> list[Profile]:
+        """
+        Get the list of validated profiles
+        """
+        return self._stats.get("validated_profiles", [])
+
+    @property
+    def validated_requirements(self) -> list[Requirement]:
+        """
+        Get the list of validated requirements
+        """
+        return self._stats.get("validated_requirements", [])
+
+    @property
+    def validated_checks(self) -> list[RequirementCheck]:
+        """
+        Get the list of validated checks
+        """
+        return self._stats.get("validated_checks", [])
+
+    @property
     def started_at(self) -> Optional[datetime]:
         """
         Get the timestamp when validation started
@@ -1578,7 +1599,10 @@ class ValidationStatistics(Subscriber):
             "passed_requirements": [],
             "passed_checks": [],
             "started_at": None,
-            "finished_at": None
+            "finished_at": None,
+            "validated_profiles": [],
+            "validated_requirements": [],
+            "validated_checks": []
         }
         logger.debug(result)
         return result
@@ -1604,6 +1628,7 @@ class ValidationStatistics(Subscriber):
                         self._stats["passed_checks"].append(event.requirement_check)
                     else:
                         self._stats["failed_checks"].append(event.requirement_check)
+                    self._stats["validated_checks"].append(event.requirement_check)
                     self.notify_listeners()
                 else:
                     logger.debug("Requirement check validation result is None: %s",
@@ -1616,9 +1641,11 @@ class ValidationStatistics(Subscriber):
                     self._stats["passed_requirements"].append(event.requirement)
                 else:
                     self._stats["failed_requirements"].append(event.requirement)
+                self._stats["validated_requirements"].append(event.requirement)
                 self.notify_listeners()
-        # elif event.event_type == EventType.PROFILE_VALIDATION_END:
-        #     pass
+        elif event.event_type == EventType.PROFILE_VALIDATION_END:
+            self._stats["validated_profiles"].append(event.profile)
+            logger.debug("Profile validation ended: %s", event.profile.identifier)
         elif event.event_type == EventType.VALIDATION_END:
             self._result = event.validation_result
             self._stats["finished_at"] = datetime.now(timezone.utc)
