@@ -1,6 +1,9 @@
 import json
 
+from rich.console import ConsoleOptions, RenderResult
+
 import rocrate_validator.log as logging
+from rocrate_validator.io.output import OutputFormatter
 from rocrate_validator.io.output.console import Console
 from rocrate_validator.models import (AggregatedValidationStatistics,
                                       CustomEncoder, ValidationResult,
@@ -12,14 +15,14 @@ logger = logging.getLogger(__name__)
 
 
 def format_validation_result(data: ValidationResult,
-                             console: Console = None,
-                             settings: dict = None) -> str:
-    return format_validation_results({data.profile.identifier: data}, console=console, settings=settings)
+                             console: Console,
+                             console_options: ConsoleOptions) -> str:
+    return format_validation_results({data.profile.identifier: data}, console=console, console_options=console_options)
 
 
-def format_validation_results(data: dict[str, ValidationResult],
+def format_validation_results(data: ValidationResult,
                               console: Console = None,
-                              settings: dict = None) -> str:
+                              console_options: ConsoleOptions = None) -> str:
 
     # Initialize an empty JSON output
     json_output = {
@@ -33,15 +36,15 @@ def format_validation_results(data: dict[str, ValidationResult],
     if not data or len(data) == 0:
         return json.dumps(json_output, indent=4, cls=CustomEncoder)
 
-    # Determine verbosity from settings
-    verbose = settings.get("verbose", False) if settings else False
-
     # Extract results from the profile -> ValidationResult mapping
     results = list(data.values())
 
-    # Initialize validation settings
+    # Extract settings from the first result if available
     settings = results[0].validation_settings
     json_output["validation_settings"] = settings.to_dict()
+
+    # Determine verbosity from settings
+    verbose = settings.verbose if settings else False
 
     # Set the list of validation profiles
     json_output["validation_settings"]["profile_identifiers"] = [
@@ -90,7 +93,32 @@ def format_validation_results(data: dict[str, ValidationResult],
     return json.dumps(json_output, indent=4, cls=CustomEncoder)
 
 
-def format_validation_statistics(data: ValidationStatistics,
-                                 console: Console = None,
-                                 settings: dict = None) -> str:
+def format_validation_statistics(data: ValidationStatistics) -> str:
     return json.dumps(data.to_dict(), indent=4, cls=CustomEncoder)
+
+
+class ValidationResultJSONOutputFormatter(OutputFormatter):
+
+    def __init__(self, result: ValidationResult):
+        self._result = result
+
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        yield format_validation_result(self._result, console=console, console_options=options)
+
+
+class ValidationStatisticsJSONOutputFormatter(OutputFormatter):
+
+    def __init__(self, statistics: ValidationStatistics):
+        self._statistics = statistics
+
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        yield format_validation_statistics(self._statistics)
+
+
+class ValidationResultsJSONOutputFormatter(OutputFormatter):
+
+    def __init__(self, results: dict[str, ValidationResult]):
+        self._results = results
+
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        yield format_validation_results(self._results, console=console, console_options=options)

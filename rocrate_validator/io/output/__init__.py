@@ -15,7 +15,7 @@
 
 from typing import Any, Optional, Protocol
 
-from rich.console import Console
+from rich.console import Console, ConsoleOptions, RenderResult
 
 import rocrate_validator.log as logging
 
@@ -24,36 +24,30 @@ logger = logging.getLogger(__name__)
 
 
 class OutputFormatter(Protocol):
-    def format(self, data: Any, console: Console = None, settings: dict = None) -> str:
-        pass
+    """Protocol for output formatters."""
 
-
-class CallableOutputFormatter(Protocol):
-    """Protocol for callable formatters."""
-
-    def __call__(self, data: Any, console: Console = None, settings: dict = None) -> str:
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
         pass
 
 
 class BaseOutputFormatter(OutputFormatter):
 
-    def __init__(self, console: Optional[Console] = None, settings: dict = None):
-        self._console = console
-        self._settings = settings or {}
+    def __init__(self, data: Optional[Any] = None):
         self._fmap = {}
+        self._data = data
 
-    def add_type_formatter(self, data_type: type, formatter: OutputFormatter | CallableOutputFormatter):
+    def add_type_formatter(self, data_type: type, formatter: OutputFormatter):
         """Register a formatter for a specific data type."""
         self._fmap[data_type] = formatter
 
-    def get_type_formatter(self, data_type: type) -> OutputFormatter | CallableOutputFormatter:
+    def get_type_formatter(self, data_type: type) -> OutputFormatter:
         """Retrieve the formatter for a specific data type."""
         formatter = self._fmap.get(data_type)
         if not formatter:
             raise NotImplementedError(f"No formatter registered for type: {data_type.__name__}")
         return formatter
 
-    def get_data_formatter(self, data: Any) -> OutputFormatter | CallableOutputFormatter:
+    def get_data_formatter(self, data: Any) -> OutputFormatter:
         """Retrieve the formatter for a specific data type."""
         data_type = type(data)
         formatter = self._fmap.get(data_type)
@@ -61,17 +55,16 @@ class BaseOutputFormatter(OutputFormatter):
             raise NotImplementedError(f"No formatter registered for type: {data_type.__name__}")
         return formatter
 
-    def get_type_formatters(self) -> dict[type, CallableOutputFormatter]:
+    def get_type_formatters(self) -> dict[type]:
         """Retrieve all registered formatters."""
         return dict(self._fmap)
 
-    def format(self, data: Any, console: Console = None, settings: dict = None) -> str:
-        """Format the given data using the appropriate formatter."""
-        settings = settings or self._settings
-        formatter = self.get_data_formatter(data)
-        if console:
-            self._console = console
-        if hasattr(formatter, 'format'):
-            return formatter.format(data, console=self._console, settings=settings)
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        if self._data is None:
+            raise ValueError("No data provided for formatting.")
+        formatter = self.get_data_formatter(self._data)
+        print("Using formatter %s for data type %s", formatter, type(self._data).__name__)
+        if not formatter:
+            yield self._data
         else:
-            return formatter(data, console=self._console, settings=settings)
+            yield from formatter(self._data).__rich_console__(console, options)
