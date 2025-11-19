@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Any, Callable, Optional
 
 import rocrate_validator.log as logging
-from rocrate_validator.io.output.console import BufferedConsole, Console
+from rocrate_validator.io.output.console import Console
 from rocrate_validator.io.output.pager import SystemPager
 from rocrate_validator.io.output.text import TextOutputFormatter
 from rocrate_validator.io.output.text.layout.report import ValidationReportLayout
@@ -39,7 +39,7 @@ class ValidationCommandView:
                  no_paging: bool = False,
                  pager: Optional[SystemPager] = None,
                  console: Optional[Console] = None):
-        self.console = console or BufferedConsole()
+        self.console = console or Console()
         self.interactive = interactive
         self.pager = pager if not no_paging else None
         # reference to the validation settings
