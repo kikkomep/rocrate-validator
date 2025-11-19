@@ -167,10 +167,11 @@ class ValidationReportLayout(Layout):
             self.statistics or ValidationStatistics(self.validation_settings)
         )
 
+        # Extract the result if available
+        result = self.result or (self.statistics.validation_result) if self.statistics else None
         # Show the overall result if available
-        self.__show_overall_result__(
-            self.result or self.statistics.validation_result
-        )
+        if result:
+            self.__show_overall_result__(result)
 
     def update(self, event: Event, ctx: Optional[ValidationContext] = None):
         logger.debug("Event: %s", event.event_type)
