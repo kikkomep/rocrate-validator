@@ -12,8 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from io import StringIO
-from typing import Callable
+from typing import Optional
 
 from rich.console import Console as BaseConsole
 
@@ -39,58 +38,23 @@ class Console(BaseConsole):
             for type_, formatter in formatters.items():
                 self.register_formatter(formatter, type_)
 
-    def register_formatter(self, formatter: OutputFormatter, type_: type | None = None):
+    def register_formatter(self, formatter: OutputFormatter, type_: Optional[type] = None):
         if type_ is None and not isinstance(formatter, BaseOutputFormatter):
-            raise ValueError("Type must be provided for non-BaseOutputFormatter formatters.")
-        if type_ is None:
-            formatter: BaseOutputFormatter = formatter  # type: ignore
-            for t, f in formatter._fmap.items():
+            raise ValueError("type_ must be provided if formatter is not a BaseOutputFormatter")
+        if isinstance(formatter, BaseOutputFormatter):
+            for t, f in formatter.get_type_formatters().items():
                 self._formatters[t] = f
-                self._formatters_opts[t] = formatter
-            # inject self console into the formatter
-            formatter._console = self
         else:
             self._formatters[type_] = formatter
-            # # inject self console into the formatter
-            # formatter._console = self
+
+    def __format_data__(self, obj, *args, **kwargs):
+        formatter = self._formatters.get(type(obj))
+        if formatter:
+            return formatter(obj)
+        else:
+            return obj
 
     def print(self, obj, *args, **kwargs):
         if not self.disabled:
-            formatter = self._formatters.get(type(obj))
-            formatter_opts = self._formatters_opts.get(type(obj))
-            if formatter:
-                # Try to extract settings from formatter_opts if available
-                settings = formatter_opts._settings if formatter_opts else {}
-                # Use the formatter to format the object
-                if isinstance(formatter, Callable):
-                    formatted_output = formatter(obj, console=self, settings=settings)
-                else:
-                    formatted_output = formatter.format(obj, console=self, settings=settings)
-                # Print the formatted output
-                super().print(formatted_output, *args, **kwargs)
-            else:
-                # No formatter found, use default print
-                super().print(obj, *args, **kwargs)
-
-
-class BufferedConsole(Console):
-    """ A console that buffers output for later retrieval """
-
-    def __init__(self, formatters: dict[type, BaseOutputFormatter] = None, **kwargs):
-        self.output_buffer: StringIO = StringIO()
-        super().__init__(file=self.output_buffer, record=True, formatters=formatters, **kwargs)
-
-    def get_buffered_output(self) -> str:
-        """ Retrieve the buffered output as a single string """
-        return self.output_buffer.getvalue()
-
-    def flush_to_file(self, file_path: str):
-        """ Flush the buffered output to a specified file """
-        with open(file_path, 'w', encoding='utf-8') as f:
-            f.write(self.get_buffered_output())
-            self.clear_buffer()
-
-    def clear_buffer(self):
-        """ Clear the output buffer """
-        self.output_buffer.truncate(0)
-        self.output_buffer.seek(0)
+            out = self.__format_data__(obj, *args, **kwargs)
+            super().print(out, *args, **kwargs)
