@@ -63,7 +63,6 @@ class BaseOutputFormatter(OutputFormatter):
         if self._data is None:
             raise ValueError("No data provided for formatting.")
         formatter = self.get_data_formatter(self._data)
-        print("Using formatter %s for data type %s", formatter, type(self._data).__name__)
         if not formatter:
             yield self._data
         else:
