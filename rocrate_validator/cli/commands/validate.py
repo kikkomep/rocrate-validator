@@ -30,7 +30,7 @@ from rocrate_validator.cli.main import cli
 from rocrate_validator.cli.ui.text.validate import ValidationCommandView
 from rocrate_validator.errors import ROCrateInvalidURIError
 from rocrate_validator.io.input import get_single_char, multiple_choice
-from rocrate_validator.io.output.console import BufferedConsole, Console
+from rocrate_validator.io.output.console import Console
 from rocrate_validator.io.output.json import JSONOutputFormatter
 from rocrate_validator.io.output.text import TextOutputFormatter
 from rocrate_validator.io.output.text.layout.report import (
@@ -406,18 +406,19 @@ def validate(ctx,
                     result: ValidationResult = services.validate(validation_settings)
                 results[profile] = result
 
-                # Print the textual validation report to a file
+                # Output processing for text format to file
+                ###################################################################################
                 if output_file and output_format == "text":
                     if interactive:
                         console.print(f"\n{' '*2}📝 [bold]Writing validation results to file[/bold]{'.'*4} ", end="")
-                    out = BufferedConsole(color_system=None, width=output_line_width, height=31)
-                    if output_format == "text":
-                        out.register_formatter(TextOutputFormatter())
-                        # Print the report layout
-                        out.print(result.statistics)  # Output the statistics first
-                        if not result.passed() and verbose:
-                            out.print(result)
-                        out.flush_to_file(output_file)
+                    with open(output_file, "w", encoding="utf-8") if output_file else sys.stdout as f:
+                        out = Console(color_system=None, width=output_line_width, height=31, file=f)
+                        if output_format == "text":
+                            out.register_formatter(TextOutputFormatter())
+                            # Print the report layout
+                            out.print(result.statistics)  # Output the statistics first
+                            if not result.passed() and verbose:
+                                out.print(result)
                     if interactive:
                         console.print(f"[bold green]{output_file}[/bold green]", end="\n")
 
@@ -453,21 +454,17 @@ def validate(ctx,
                     )
                 else:
                     console.print(f"\n{' '*2}📋 [bold]The validation report in JSON format: [/bold]\n")
-            # Generate the JSON output
-            out = BufferedConsole(color_system=None, width=output_line_width)
-            out.register_formatter(JSONOutputFormatter(settings={"verbose": verbose}))
-            out.print(results)
-            json_output = out.get_buffered_output()
-            # Print the JSON validation report to the console
-            # pretty print the JSON output
-            if not output_file:
-                console.print(json_output)
-            # Print the JSON validation report to a file
-            if output_file:
-                with open(output_file, "w") as f:
-                    f.write(json_output)
+
+            # Generate the JSON output and write it to the specified output file or to stdout
+            with open(output_file, "w", encoding="utf-8") if output_file else sys.stdout as f:
+                out = Console(width=output_line_width, file=f)
+                out.register_formatter(JSONOutputFormatter())
+                out.print(results)
+
+            # Notify completion of JSON output generation
             if interactive and output_file:
                 console.print("[bold]DONE![/bold]", end="\n\n")
+
         ################################################################################
         # Exit with appropriate status code
         ################################################################################
