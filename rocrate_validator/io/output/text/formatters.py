@@ -32,7 +32,7 @@ from ..console import Console
 logger = logging.getLogger(__name__)
 
 
-class ValidationResultTextOutputFormatterNew(OutputFormatter):
+class ValidationResultTextOutputFormatter(OutputFormatter):
 
     def __init__(self, validation_result: ValidationResult):
         self._validation_result = validation_result
@@ -78,7 +78,7 @@ class ValidationResultTextOutputFormatterNew(OutputFormatter):
             yield Padding("\n", (0, 0))
 
 
-class ValidationStatisticsTextOutputFormatterNew(OutputFormatter):
+class ValidationStatisticsTextOutputFormatter(OutputFormatter):
 
     def __init__(self, validation_statistics: ValidationStatistics):
         self._validation_statistics = validation_statistics
