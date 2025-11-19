@@ -2344,6 +2344,8 @@ class ValidationSettings:
     metadata_only: bool = False
     #: RO-Crate metadata as dictionary
     metadata_dict: dict = None
+    #: Verbose output
+    verbose: bool = False
 
     def __post_init__(self):
         # if requirement_severity is a str, convert to Severity
