@@ -14,9 +14,8 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
-from requests_cache import Optional
 from rich.console import Console, ConsoleOptions, RenderResult
 
 import rocrate_validator.log as logging
