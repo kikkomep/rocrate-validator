@@ -28,7 +28,10 @@ class Console(BaseConsole):
 
     def __init__(self, *args, disabled: bool = False, interactive: bool = True,
                  formatters: dict[type, OutputFormatter] = None, **kwargs):
-        super().__init__(*args, **kwargs)
+        force_jupyter = kwargs.pop("force_jupyter", None)
+        if force_jupyter is None:
+            force_jupyter = False if self.__jupyter_environment__() else None
+        super().__init__(*args, force_jupyter=force_jupyter, **kwargs)
         self.disabled = disabled
         self.interactive = interactive
         self._formatters = {}
@@ -37,6 +40,10 @@ class Console(BaseConsole):
         if formatters:
             for type_, formatter in formatters.items():
                 self.register_formatter(formatter, type_)
+
+    def __jupyter_environment__(self) -> bool:
+        from rocrate_validator.cli.utils import running_in_jupyter
+        return running_in_jupyter()
 
     def register_formatter(self, formatter: OutputFormatter, type_: Optional[type] = None):
         if type_ is None and not isinstance(formatter, BaseOutputFormatter):

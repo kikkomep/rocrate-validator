@@ -39,3 +39,11 @@ def format_text(text: str,
     else:
         text = textwrap.indent(text, ' ' * initial_indent)
     return text
+
+
+def running_in_jupyter():
+    try:
+        shell = get_ipython().__class__.__name__
+        return shell == "ZMQInteractiveShell"
+    except NameError:
+        return False
