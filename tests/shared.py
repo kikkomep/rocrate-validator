@@ -46,7 +46,8 @@ def do_entity_test(
         abort_on_first: bool = False,
         profile_identifier: str = DEFAULT_PROFILE_IDENTIFIER,
         rocrate_entity_patch: Optional[dict] = None,
-        skip_checks: Optional[list[str]] = ()
+        skip_checks: Optional[list[str]] = (),
+        rocrate_relative_root_path: Optional[str] = None
 ):
     """
     Shared function to test a RO-Crate entity
@@ -55,7 +56,7 @@ def do_entity_test(
     failed_requirements = None
     detected_issues = None
 
-    if not isinstance(rocrate_path, Path):
+    if not isinstance(rocrate_path, Path) and not rocrate_path.startswith("http"):
         rocrate_path = Path(rocrate_path)
 
     temp_rocrate_path = None
@@ -98,7 +99,8 @@ def do_entity_test(
                 "requirement_severity": requirement_severity,
                 "abort_on_first": abort_on_first,
                 "profile_identifier": profile_identifier,
-                "skip_checks": skip_checks
+                "skip_checks": skip_checks,
+                "rocrate_relative_root_path": rocrate_relative_root_path
             }))
         logger.debug("Expected validation result: %s", expected_validation_result)
 
