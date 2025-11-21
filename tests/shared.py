@@ -47,7 +47,9 @@ def do_entity_test(
         profile_identifier: str = DEFAULT_PROFILE_IDENTIFIER,
         rocrate_entity_patch: Optional[dict] = None,
         skip_checks: Optional[list[str]] = (),
-        rocrate_relative_root_path: Optional[str] = None
+        rocrate_relative_root_path: Optional[str] = None,
+        metadata_only: bool = False,
+        metadata_dict: Optional[dict] = None
 ):
     """
     Shared function to test a RO-Crate entity
@@ -100,7 +102,9 @@ def do_entity_test(
                 "abort_on_first": abort_on_first,
                 "profile_identifier": profile_identifier,
                 "skip_checks": skip_checks,
-                "rocrate_relative_root_path": rocrate_relative_root_path
+                "rocrate_relative_root_path": rocrate_relative_root_path,
+                "metadata_only": metadata_only,
+                "metadata_dict": metadata_dict
             }))
         logger.debug("Expected validation result: %s", expected_validation_result)
 
