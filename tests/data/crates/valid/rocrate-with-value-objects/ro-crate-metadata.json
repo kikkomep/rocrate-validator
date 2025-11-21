@@ -18,7 +18,10 @@
             "@id": "./",
             "@type": "Dataset",
             "name": "My Pictures",
-            "description": "A collection of my pictures",
+            "description": {
+                "@value": "A collection of my pictures",
+                "@language": "en"
+            },
             "datePublished": {
                 "@value": "2024-05-17T01:04:52+01:00",
                 "@type": "http://www.w3.org/2001/XMLSchema#dateTime"
