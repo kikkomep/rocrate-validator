@@ -67,7 +67,7 @@ class ValidROC:
     def bagit_remote_zip(self) -> str:
         return (
             "https://github.com/kikkomep/rocrate-validator/raw/refs/heads/"
-            "feat/configurable-root-issue-100/tests/data/crates/valid/bagit.zip"
+            "feat/configurable-dataroot_issue-100/tests/data/crates/valid/bagit.zip"
         )
 
     @property
