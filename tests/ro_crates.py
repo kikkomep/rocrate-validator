@@ -48,6 +48,10 @@ class ValidROC:
         return VALID_CRATES_DATA_PATH / "wrroc-paper-long-date"
 
     @property
+    def rocrate_with_value_objects(self) -> Path:
+        return VALID_CRATES_DATA_PATH / "rocrate-with-value-objects"
+
+    @property
     def workflow_roc(self) -> Path:
         return VALID_CRATES_DATA_PATH / "workflow-roc"
 
