@@ -17,6 +17,7 @@ import sys
 import rich_click as click
 
 import rocrate_validator.log as logging
+from rocrate_validator.cli.utils import running_in_jupyter
 from rocrate_validator.io.output.console import Console
 from rocrate_validator.io.output.pager import SystemPager
 from rocrate_validator.utils import get_version
@@ -60,7 +61,7 @@ def cli(ctx: click.Context, debug: bool, version: bool, disable_color: bool, no_
     ctx.ensure_object(dict)
 
     # determine if the console is interactive
-    interactive = sys.stdout.isatty() and not no_interactive
+    interactive = sys.stdout.isatty() and not no_interactive and not running_in_jupyter()
 
     console = Console(no_color=disable_color or not interactive, interactive=interactive)
     # pass the console to subcommands through the click context, after configuration
