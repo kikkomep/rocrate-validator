@@ -109,10 +109,14 @@ def test_validate_skip_checks_option(cli_runner: CliRunner):
         assert result.exit_code == 2
         # Check if 'skip_checks' is in the called arguments
         settings = called_args[0]
-        assert settings.skip_checks is not None, "skip_checks should not be None"
+        assert isinstance(settings, dict), "Validation settings should be a dictionary"
+
+        # Check if the skip_checks attribute is not None
+        assert settings["skip_checks"] is not None, "skip_checks should not be None"
 
         # Check if the skip_checks value matches the expected value
-        assert list(skip_checks_1 + skip_checks_2) == called_args['skip_checks']
+        assert list(skip_checks_1 + skip_checks_2) == settings["skip_checks"], \
+            f"Expected skip_checks to be {list(skip_checks_1 + skip_checks_2)}, but got {settings.skip_checks}"
 
 
 def test_validate_with_invalid_profiles_path_dir(cli_runner: CliRunner):
