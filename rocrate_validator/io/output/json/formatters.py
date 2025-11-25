@@ -17,7 +17,8 @@ logger = logging.getLogger(__name__)
 def format_validation_result(data: ValidationResult,
                              console: Console,
                              console_options: ConsoleOptions) -> str:
-    return format_validation_results({data.profile.identifier: data}, console=console, console_options=console_options)
+    return format_validation_results({data.context.profile_identifier: data},
+                                     console=console, console_options=console_options)
 
 
 def format_validation_results(data: ValidationResult,
