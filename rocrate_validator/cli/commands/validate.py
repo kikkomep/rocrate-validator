@@ -363,29 +363,46 @@ def validate(ctx,
             #########################################################################################
             # Perform the validation and get the validation result
             if output_format == "text" and not output_file:
-                # Initialize the command view for text output
-                command_view = ValidationCommandView(
-                    validation_settings=ValidationSettings.parse(validation_settings),
-                    console=console,
-                    interactive=interactive,
-                    no_paging=not enable_pager,
-                    pager=pager
-                )
+                # If in interactive mode, show the validation progress with a progress bar
+                # with a live updating layout
+                if interactive:
+                    # Initialize the command view for text output
+                    command_view = ValidationCommandView(
+                        validation_settings=ValidationSettings.parse(validation_settings),
+                        console=console,
+                        interactive=interactive,
+                        no_paging=not enable_pager,
+                        pager=pager
+                    )
+                    # Validate RO-Crate against the profile and get the validation result
+                    result = command_view.show_validation_progress(services.validate)
 
-                # Validate RO-Crate against the profile and get the validation result
-                result = command_view.show_validation_progress(services.validate)
+                    # Print the validation result
+                    if not result.passed():
+                        verbose_choice = "n"
+                        if interactive and not verbose:
+                            verbose_choice = get_single_char(console, choices=['y', 'n'],
+                                                             message=(
+                                "[bold] > Do you want to see the validation details? "
+                                "([magenta]y/n[/magenta]): [/bold]"
+                            ))
+                        if verbose_choice == "y" or verbose:
+                            command_view.display_validation_result(result)
+                else:
+                    # Validate RO-Crate against the profile and get the validation result
+                    result: ValidationResult = services.validate(validation_settings)
+                    # Init TextOutputFormatter for console output
+                    console.register_formatter(TextOutputFormatter())
+                    # Show the final overview of the validation if no interactive mode
+                    console.print(result.statistics)
 
-                # Print the validation result
-                if not result.passed():
-                    verbose_choice = "n"
-                    if interactive and not verbose:
-                        verbose_choice = get_single_char(console, choices=['y', 'n'],
-                                                         message=(
-                            "[bold] > Do you want to see the validation details? "
-                            "([magenta]y/n[/magenta]): [/bold]"
-                        ))
-                    if verbose_choice == "y" or verbose:
-                        command_view.display_validation_result(result)
+                    logger.warning("Is verbose: %s", verbose)
+
+                    # Print the validation result
+                    if not result.passed() and verbose:
+                        out = Console(no_color=console.no_color, width=console.width, height=console.height)
+                        out.register_formatter(TextOutputFormatter())
+                        out.print(result)
 
             ###########################################################################################
             # Perform the validation without progress bar (for JSON output or text output to file)
