@@ -266,15 +266,18 @@ class Profile:
             # Check if the profile is overriding an existing profile
             existing_profile = self.__profiles_map.get_by_key(self._profile_node.toPython())
             if existing_profile:
-                # if the profile already exists, raise an error
-                logger.warning(
-                    "Profile with identifier %s already exists at %s and will be overridden "
-                    "by the profile loaded from %s.",
-                    existing_profile.identifier,
-                    existing_profile.path,
-                    profile_path
-                )
-                self.__add_override__(existing_profile)
+                # Check if the existing profile is different from the current one
+                if existing_profile.path != profile_path:
+                    # if the profile already exists, log a warning
+                    logger.warning(
+                        "Profile with identifier %s at %s is being overridden "
+                        "by the profile loaded from %s.",
+                        existing_profile.identifier,
+                        existing_profile.path,
+                        profile_path
+                    )
+                    # add the existing profile as an override
+                    self.__add_override__(existing_profile)
 
             # add the profile to the profiles map
             self.__profiles_map.add(
