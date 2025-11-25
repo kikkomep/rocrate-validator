@@ -23,24 +23,6 @@ import rocrate_validator.log as logging
 logger = logging.getLogger(__name__)
 
 
-def format_text(text: str,
-                initial_indent: int = 0,
-                subsequent_indent: int = 0,
-                line_width: Optional[int] = None,
-                skip_initial_indent: bool = False) -> str:
-    text = re.sub(r"\s+", " ", text).strip()
-    line_width = line_width or os.get_terminal_size().columns - initial_indent
-    if line_width:
-        text = textwrap.fill(text, width=line_width, initial_indent=' ' *
-                             (initial_indent if not skip_initial_indent else 0),
-                             subsequent_indent=' ' * subsequent_indent,
-                             break_long_words=False,
-                             break_on_hyphens=False)
-    else:
-        text = textwrap.indent(text, ' ' * initial_indent)
-    return text
-
-
 def running_in_jupyter():
     try:
         shell = get_ipython().__class__.__name__
