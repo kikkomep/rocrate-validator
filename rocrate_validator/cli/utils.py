@@ -13,9 +13,6 @@
 # limitations under the License.
 
 import os
-import re
-import textwrap
-from typing import Optional
 
 import rocrate_validator.log as logging
 
@@ -24,8 +21,9 @@ logger = logging.getLogger(__name__)
 
 
 def running_in_jupyter():
-    try:
-        shell = get_ipython().__class__.__name__
-        return shell == "ZMQInteractiveShell"
-    except NameError:
-        return False
+    # Environment variable set by Jupyter to indicate
+    # the process ID (PID) of the Jupyter server
+    # that launched the current kernel.
+    # It is mainly used internally to track the parent process
+    # and manage kernel lifecycle.
+    return 'JPY_PARENT_PID' in os.environ
