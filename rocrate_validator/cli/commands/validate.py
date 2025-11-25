@@ -396,8 +396,6 @@ def validate(ctx,
                     # Show the final overview of the validation if no interactive mode
                     console.print(result.statistics)
 
-                    logger.warning("Is verbose: %s", verbose)
-
                     # Print the validation result
                     if not result.passed() and verbose:
                         out = Console(no_color=console.no_color, width=console.width, height=console.height)
