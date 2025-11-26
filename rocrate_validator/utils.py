@@ -389,8 +389,9 @@ class HttpRequester:
     _instance = None
     _lock = threading.Lock()
 
-    def __new__(cls):
+    def __new__(cls, *args, **kwargs) -> HttpRequester:
         if cls._instance is None:
+            logger.debug(f"Creating instance of {cls.__name__} with args: {args}, kwargs: {kwargs}")
             with cls._lock:
                 if cls._instance is None:
                     logger.debug(f"Creating instance of {cls.__name__}")
@@ -399,7 +400,9 @@ class HttpRequester:
                     logger.debug(f"Instance created: {cls._instance.__class__.__name__}")
         return cls._instance
 
-    def __init__(self):
+    def __init__(self,
+                 cache_max_age: int = constants.DEFAULT_HTTP_CACHE_MAX_AGE,
+                 cache_path: Optional[str] = None):
         # check if the instance is already initialized
         if not hasattr(self, "_initialized"):
             # check if the instance is already initialized
@@ -414,7 +417,7 @@ class HttpRequester:
         else:
             logger.debug(f"Instance of {self} already initialized")
 
-    def __initialize_session__(self):
+    def __initialize_session__(self, cache_max_age: int, cache_path: Optional[str] = None):
         # initialize the session
         self.session = None
         logger.debug(f"Initializing instance of {self.__class__.__name__}")
