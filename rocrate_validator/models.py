@@ -22,9 +22,10 @@ import re
 from abc import ABC, abstractmethod
 from collections.abc import Collection
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from functools import total_ordering
 from pathlib import Path
-from typing import Optional, Tuple, Union
+from typing import Optional, Protocol, Tuple, Union
 from urllib.error import HTTPError
 
 import enum_tools
@@ -45,7 +46,7 @@ from rocrate_validator.errors import (DuplicateRequirementCheck,
                                       ProfileSpecificationError,
                                       ProfileSpecificationNotFound,
                                       ROCrateMetadataNotFoundError)
-from rocrate_validator.events import Event, EventType, Publisher
+from rocrate_validator.events import Event, EventType, Publisher, Subscriber
 from rocrate_validator.rocrate import ROCrate
 from rocrate_validator.utils import (URI, MapIndex, MultiIndexMap,
                                      get_profiles_path,
@@ -265,15 +266,18 @@ class Profile:
             # Check if the profile is overriding an existing profile
             existing_profile = self.__profiles_map.get_by_key(self._profile_node.toPython())
             if existing_profile:
-                # if the profile already exists, raise an error
-                logger.warning(
-                    "Profile with identifier %s already exists at %s and will be overridden "
-                    "by the profile loaded from %s.",
-                    existing_profile.identifier,
-                    existing_profile.path,
-                    profile_path
-                )
-                self.__add_override__(existing_profile)
+                # Check if the existing profile is different from the current one
+                if existing_profile.path != profile_path:
+                    # if the profile already exists, log a warning
+                    logger.warning(
+                        "Profile with identifier %s at %s is being overridden "
+                        "by the profile loaded from %s.",
+                        existing_profile.identifier,
+                        existing_profile.path,
+                        profile_path
+                    )
+                    # add the existing profile as an override
+                    self.__add_override__(existing_profile)
 
             # add the profile to the profiles map
             self.__profiles_map.add(
@@ -819,6 +823,27 @@ class Profile:
         :rtype: list[Profile]
         """
         return cls.__profiles_map.values()
+
+    @classmethod
+    def find_in_list(cls, profiles: Collection[Profile],
+                     profile_identifier: str) -> Optional[Profile]:
+        """
+        Find a profile with the given identifier in the given list of profiles
+
+        :param profiles: the list of profiles
+        :type profiles: Collection[Profile]
+
+        :param identifier: the identifier
+        :type identifier: str
+
+        :return: the profile if found, None otherwise
+        :rtype: Optional[Profile]
+        """
+        profile = next((p for p in profiles if p.identifier == profile_identifier), None) or \
+            next((p for p in profiles if str(p.identifier).replace(f"-{p.version}", '') == profile_identifier), None)
+        if not profile:
+            raise ProfileNotFound(profile_identifier)
+        return profile
 
 
 class SkipRequirementCheck(Exception):
@@ -1384,6 +1409,644 @@ class CheckIssue:
             ), indent=4, cls=CustomEncoder)
 
 
+class ValidationStatisticsListener(Protocol):
+    """
+    Protocol for listeners interested in validation statistics updates.
+    """
+
+    def on_statistics_updated(self, statistics: ValidationStatistics):
+        logger.debug("Statistics updated: %r", statistics.statistics)
+
+
+class ValidationStatistics(Subscriber):
+    """
+    Computes and stores statistical metrics about the RO-Crate validation process.
+    """
+
+    def __init__(self, settings: Union[dict, ValidationSettings],
+                 context: Optional[ValidationContext] = None,
+                 skip_initialization: bool = False):
+        if isinstance(settings, dict):
+            settings = ValidationSettings.parse(settings)
+        self._settings = settings
+        self._context = context
+        self._stats = self.__initialise__(settings) if not skip_initialization else {}
+        self._result: Optional[ValidationResult] = None
+        self._listeners = []
+        # self._target_profile: Optional[Profile] = None
+
+    @property
+    def validation_settings(self) -> ValidationSettings:
+        """
+        Get the validation settings used for statistics computation
+        """
+        return self._settings
+
+    @property
+    def validation_result(self) -> Optional[ValidationResult]:
+        """
+        Get the validation result
+        """
+        return self._result
+
+    def add_listener(self, listener: ValidationStatisticsListener):
+        """
+        Add a listener to be notified on statistics updates
+        """
+        self._listeners.append(listener)
+        logger.debug("Listener added: %r", listener)
+
+    def notify_listeners(self):
+        """
+        Notify all registered listeners about statistics updates
+        """
+        for listener in self._listeners:
+            listener.on_statistics_updated(self)
+            logger.debug("Notified listener: %r", listener)
+
+    @property
+    def statistics(self) -> dict:
+        """
+        Get the computed validation statistics
+        """
+        return self._stats.copy()
+
+    @property
+    def profile(self) -> Profile:
+        """
+        Get the profile being validated
+        """
+        return self._stats.get("profile")
+
+    @property
+    def profiles(self) -> list[Profile]:
+        """
+        Get all profiles involved in validation
+        """
+        return self._stats.get("profiles", [])
+
+    @property
+    def severity(self) -> Severity:
+        """
+        Get the validation severity level
+        """
+        return self._stats.get("severity")
+
+    @property
+    def checks_by_severity(self) -> dict:
+        """
+        Get the checks grouped by severity
+        """
+        return self._stats.get("checks_by_severity", {})
+
+    @property
+    def check_count_by_severity(self) -> dict:
+        """
+        Get the count of checks grouped by severity
+        """
+        return {k: len(v) for k, v in self._stats.get("checks_by_severity", {}).items()}
+
+    @property
+    def requirements(self) -> list[Requirement]:
+        """
+        Get all requirements being validated
+        """
+        return self._stats.get("requirements", [])
+
+    @property
+    def passed_requirements(self) -> list[Requirement]:
+        """
+        Get the list of passed requirements
+        """
+        return self._stats.get("passed_requirements", [])
+
+    @property
+    def failed_requirements(self) -> list[Requirement]:
+        """
+        Get the list of failed requirements
+        """
+        return self._stats.get("failed_requirements", [])
+
+    @property
+    def total_requirements(self) -> int:
+        """
+        Get the total number of requirements
+        """
+        return len(self._stats.get("requirements", []))
+
+    @property
+    def checks(self) -> list[RequirementCheck]:
+        """
+        Get all checks being validated
+        """
+        return self._stats.get("checks", [])
+
+    @property
+    def passed_checks(self) -> list[RequirementCheck]:
+        """
+        Get the list of passed checks
+        """
+        return self._stats.get("passed_checks", [])
+
+    @property
+    def failed_checks(self) -> list[RequirementCheck]:
+        """
+        Get the list of failed checks
+        """
+        return self._stats.get("failed_checks", [])
+
+    @property
+    def total_checks(self) -> int:
+        """
+        Get the total number of checks
+        """
+        return len(self._stats.get("checks", []))
+
+    @property
+    def validated_profiles(self) -> list[Profile]:
+        """
+        Get the list of validated profiles
+        """
+        return self._stats.get("validated_profiles", [])
+
+    @property
+    def validated_requirements(self) -> list[Requirement]:
+        """
+        Get the list of validated requirements
+        """
+        return self._stats.get("validated_requirements", [])
+
+    @property
+    def validated_checks(self) -> list[RequirementCheck]:
+        """
+        Get the list of validated checks
+        """
+        return self._stats.get("validated_checks", [])
+
+    @property
+    def started_at(self) -> Optional[datetime]:
+        """
+        Get the timestamp when validation started
+        """
+        return self._stats.get("started_at")
+
+    @property
+    def finished_at(self) -> Optional[datetime]:
+        """
+        Get the timestamp when validation finished
+        """
+        return self._stats.get("finished_at")
+
+    @property
+    def duration(self) -> Optional[float]:
+        """
+        Get the duration of the validation process in seconds
+        """
+        started_at = self.started_at
+        finished_at = self.finished_at
+        if started_at and finished_at:
+            return (finished_at - started_at).total_seconds()
+        return None
+
+    @classmethod
+    def __initialise__(cls, validation_settings: ValidationSettings):
+        """
+        Compute the statistics of the profile
+        """
+        # extract the validation settings
+        severity_validation = validation_settings.requirement_severity
+        profiles: list[Profile] = Profile.load_profiles(
+            validation_settings.profiles_path, severity=severity_validation)
+        profile: Profile = Profile.find_in_list(profiles, validation_settings.profile_identifier)
+        target_profile_identifier = profile.identifier
+        # initialize the profiles list
+        profiles = [profile]
+
+        # add inherited profiles if enabled
+        if validation_settings.enable_profile_inheritance:
+            profiles.extend(profile.inherited_profiles)
+        logger.debug("Inherited profiles: %r", profile.inherited_profiles)
+
+        # Initialize the counters
+        checks_by_severity = {}
+        checks: set[RequirementCheck] = set()
+        requirements: set[Requirement] = set()
+
+        # Initialize the counters
+        for severity in (Severity.REQUIRED, Severity.RECOMMENDED, Severity.OPTIONAL):
+            checks_by_severity[severity] = set()
+
+        # Process the requirements and checks
+        processed_requirements = []
+        for profile in profiles:
+            for requirement in profile.requirements:
+                if requirement in processed_requirements:
+                    continue
+                processed_requirements.append(requirement)
+                if requirement.hidden:
+                    continue
+
+                requirement_checks_count = 0
+                for severity in (Severity.REQUIRED, Severity.RECOMMENDED, Severity.OPTIONAL):
+                    logger.debug(
+                        f"Checking requirement: {requirement} severity: {severity} {severity < severity_validation}")
+                    # skip requirements with lower severity
+                    if severity < severity_validation:
+                        continue
+                    # count the checks
+                    requirement_checks = [_ for _ in requirement.get_checks_by_level(LevelCollection.get(severity.name))
+                                          if not _.overridden or
+                                          _.requirement.profile.identifier == target_profile_identifier]
+                    num_checks = len(requirement_checks)
+                    requirement_checks_count += num_checks
+                    if num_checks > 0:
+                        logger.debug(f"Requirement: {requirement} has {num_checks} checks of severity: {severity}")
+                        checks.update(requirement_checks)
+                        checks_by_severity[severity].update(requirement_checks)
+
+                # count the requirements and checks
+                if requirement_checks_count == 0:
+                    logger.debug(f"No checks for requirement: {requirement}")
+                else:
+                    # Only if there are checks for the requirement count it
+                    logger.debug(f"Requirement: {requirement} checks count: {requirement_checks_count}")
+                    assert not requirement.hidden, "Hidden requirements should not be counted"
+                    # add the requirement to the list
+                    requirements.add(requirement)
+
+        # log processed requirements
+        logger.debug("Processed requirements %r: %r", len(processed_requirements), processed_requirements)
+
+        # Prepare the result
+        result = {
+            "profile": profile,
+            "profiles": profiles,
+            "requirements": requirements,
+            "checks": checks,
+            "severity": severity_validation,
+            "checks_by_severity": checks_by_severity,
+            "failed_requirements": [],
+            "failed_checks": [],
+            "passed_requirements": [],
+            "passed_checks": [],
+            "started_at": None,
+            "finished_at": None,
+            "validated_profiles": [],
+            "validated_requirements": [],
+            "validated_checks": []
+        }
+        logger.debug(result)
+        return result
+
+    def update(self, event: Event, ctx: Optional[ValidationContext] = None) -> None:
+        # logger.debug("Event: %s", event.event_type)
+        if event.event_type == EventType.VALIDATION_START:
+            logger.debug("Validation started")
+            self._stats["started_at"] = datetime.now(timezone.utc)
+        if event.event_type == EventType.PROFILE_VALIDATION_START:
+            logger.debug("Profile validation start: %s", event.profile.identifier)
+        elif event.event_type == EventType.REQUIREMENT_VALIDATION_START:
+            logger.debug("Requirement validation start")
+        elif event.event_type == EventType.REQUIREMENT_CHECK_VALIDATION_START:
+            logger.debug("Requirement check validation start")
+        elif event.event_type == EventType.REQUIREMENT_CHECK_VALIDATION_END:
+            target_profile = ctx.target_validation_profile
+            if not event.requirement_check.requirement.hidden and \
+                    (not event.requirement_check.overridden
+                     or target_profile.identifier == event.requirement_check.requirement.profile.identifier):
+                if event.validation_result is not None:
+                    if event.validation_result:
+                        self._stats["passed_checks"].append(event.requirement_check)
+                    else:
+                        self._stats["failed_checks"].append(event.requirement_check)
+                    self._stats["validated_checks"].append(event.requirement_check)
+                    self.notify_listeners()
+                else:
+                    logger.debug("Requirement check validation result is None: %s",
+                                 event.requirement_check.identifier)
+            else:
+                logger.debug("Skipping requirement check validation: %s", event.requirement_check.identifier)
+        elif event.event_type == EventType.REQUIREMENT_VALIDATION_END:
+            if not event.requirement.hidden:
+                if event.validation_result:
+                    self._stats["passed_requirements"].append(event.requirement)
+                else:
+                    self._stats["failed_requirements"].append(event.requirement)
+                self._stats["validated_requirements"].append(event.requirement)
+                self.notify_listeners()
+        elif event.event_type == EventType.PROFILE_VALIDATION_END:
+            self._stats["validated_profiles"].append(event.profile)
+            logger.debug("Profile validation ended: %s", event.profile.identifier)
+        elif event.event_type == EventType.VALIDATION_END:
+            self._result = event.validation_result
+            self._stats["finished_at"] = datetime.now(timezone.utc)
+            logger.debug("Validation ended with result: %s", event.validation_result)
+
+    def to_dict(self) -> dict:
+        """"
+        Get the computed validation statistics as a dictionary
+        """
+        return {
+            # Execution time details
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "finished_at": self.finished_at.isoformat() if self.finished_at else None,
+            "duration": self.duration,
+
+            # Profile details
+            "profile": self.profile.identifier if self.profile else None,
+            "profiles": [p.identifier for p in self.profiles],
+            "severity": self.severity.name if self.severity else None,
+
+            # Computed totals
+            "total_requirements": self.total_requirements,
+            "total_passed_requirements": len(self.passed_requirements),
+            "total_failed_requirements": len(self.failed_requirements),
+            "total_checks": self.total_checks,
+            "total_passed_checks": len(self.passed_checks),
+            "total_failed_checks": len(self.failed_checks),
+            "total_checks_by_severity": {k.name: len(v) for k, v in self.checks_by_severity.items()},
+
+            # Requirements involved
+            "requirements": {
+                "count": self.total_requirements,
+                "passed": {
+                    "count": len(self.passed_requirements),
+                    "percentage": (len(self.passed_requirements) / self.total_requirements * 100)
+                    if self.total_requirements > 0 else 0.0,
+                    "identifiers": sorted([r.identifier for r in self.passed_requirements])
+                },
+                "failed": {
+                    "count": len(self.failed_requirements),
+                    "percentage": (len(self.failed_requirements) / self.total_requirements * 100)
+                    if self.total_requirements > 0 else 0.0,
+                    "identifiers": sorted([r.identifier for r in self.failed_requirements])
+                },
+                "identifiers": sorted([r.identifier for r in self.requirements])
+            },
+
+            # Checks involved
+            "checks": {
+                "count": self.total_checks,
+                "passed": {
+                    "count": len(self.passed_checks),
+                    "percentage": (len(self.passed_checks) / self.total_checks * 100)
+                    if self.total_checks > 0 else 0.0,
+                    "identifiers": sorted([c.identifier for c in self.passed_checks])
+                },
+                "failed": {
+                    "count": len(self.failed_checks),
+                    "percentage": (len(self.failed_checks) / self.total_checks * 100)
+                    if self.total_checks > 0 else 0.0,
+                    "identifiers": sorted([c.identifier for c in self.failed_checks])
+                },
+                "identifiers": sorted([c.identifier for c in self.checks]),
+                "by_severity": {k.name: len(v) for k, v in self._stats.get("checks_by_severity", {}).items()}
+            }
+        }
+
+    def to_json(self) -> str:
+        """
+        Get the computed validation statistics as a JSON string
+        """
+        return json.dumps(self.to_dict(), indent=4, cls=CustomEncoder)
+
+
+class AggregatedValidationStatistics:
+    """
+    Represents aggregated validation statistics from multiple validation runs.
+    """
+
+    def __init__(self, statistics_list: list[ValidationStatistics]):
+        if not statistics_list:
+            raise ValueError("statistics_list cannot be empty")
+        # Store the individual statistics
+        self._statistics_list = statistics_list
+
+        # Aggregate the statistics
+        self._overall_stats = self.__compute_averall_stats__()
+
+    @property
+    def individual_statistics(self) -> list[ValidationStatistics]:
+        """
+        Get the individual validation statistics
+        """
+        return self._statistics_list
+
+    def to_dict(self) -> dict:
+        """
+        Get the overall aggregated statistics as a dictionary
+        """
+        return {
+            # Execution time details
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "finished_at": self.finished_at.isoformat() if self.finished_at else None,
+            "duration": self.duration,
+
+            # Profiles involved
+            "profiles": [p.identifier for p in self.profiles],
+
+            # Computed totals
+            "total_requirements": self.total_requirements,
+            "total_passed_requirements": len(self.passed_requirements),
+            "total_failed_requirements": len(self.failed_requirements),
+            "total_checks": self.total_checks,
+            "total_passed_checks": len(self.passed_checks),
+            "total_failed_checks": len(self.failed_checks),
+            "total_checks_by_severity": {k.name: len(v) for k, v in self.checks_by_severity.items()},
+
+            # Requirements involved
+            "requirements": {
+                "count": self.total_requirements,
+                "passed": {
+                    "count": len(self.passed_requirements),
+                    "percentage": (len(self.passed_requirements) / self.total_requirements * 100)
+                    if self.total_requirements > 0 else 0.0,
+                    "identifiers": [r.identifier for r in self.passed_requirements]
+                },
+                "failed": {
+                    "count": len(self.failed_requirements),
+                    "percentage": (len(self.failed_requirements) / self.total_requirements * 100)
+                    if self.total_requirements > 0 else 0.0,
+                    "identifiers": [r.identifier for r in self.failed_requirements]
+                },
+                "identifiers": [r.identifier for r in self.requirements]
+            },
+            # Checks involved
+            "checks": {
+                "count": self.total_checks,
+                "passed": {
+                    "count": len(self.passed_checks),
+                    "percentage": (len(self.passed_checks) / self.total_checks * 100)
+                    if self.total_checks > 0 else 0.0,
+                    "identifiers": [c.identifier for c in self.passed_checks]
+                },
+                "failed": {
+                    "count": len(self.failed_checks),
+                    "percentage": (len(self.failed_checks) / self.total_checks * 100)
+                    if self.total_checks > 0 else 0.0,
+                    "identifiers": [c.identifier for c in self.failed_checks]
+                },
+                "identifiers": [c.identifier for c in self.checks]
+            },
+        }
+
+    @property
+    def profiles(self) -> set[Profile]:
+        """
+        Get the set of profiles involved in the aggregated validation
+        """
+        return self._overall_stats.get("profiles", set())
+
+    @property
+    def total_profiles(self) -> int:
+        """
+        Get the total number of profiles involved in the aggregated validation
+        """
+        return len(self._overall_stats.get("profiles", set()))
+
+    @property
+    def requirements(self) -> set[Requirement]:
+        """
+        Get the set of requirements in the aggregated validation
+        """
+        return self._overall_stats.get("requirements", set())
+
+    @property
+    def passed_requirements(self) -> set[Requirement]:
+        """
+        Get the set of passed requirements in the aggregated validation
+        """
+        return self._overall_stats.get("passed_requirements", set())
+
+    @property
+    def failed_requirements(self) -> set[Requirement]:
+        """
+        Get the set of failed requirements in the aggregated validation
+        """
+        return self._overall_stats.get("failed_requirements", set())
+
+    @property
+    def total_requirements(self) -> int:
+        """
+        Get the total number of requirements in the aggregated validation
+        """
+        return len(self._overall_stats.get("requirements", set()))
+
+    @property
+    def checks(self) -> set[RequirementCheck]:
+        """
+        Get the set of checks in the aggregated validation
+        """
+        return self._overall_stats.get("checks", set())
+
+    @property
+    def checks_by_severity(self) -> dict:
+        """
+        Get the checks grouped by severity in the aggregated validation
+        """
+        return self._overall_stats.get("checks_by_severity", {})
+
+    @property
+    def total_checks(self) -> int:
+        """
+        Get the total number of checks in the aggregated validation
+        """
+        return len(self._overall_stats.get("checks", set()))
+
+    @property
+    def passed_checks(self) -> set[RequirementCheck]:
+        """
+        Get the set of passed checks in the aggregated validation
+        """
+        return self._overall_stats.get("passed_checks", set())
+
+    @property
+    def failed_checks(self) -> set[RequirementCheck]:
+        """
+        Get the set of failed checks in the aggregated validation
+        """
+        return self._overall_stats.get("failed_checks", set())
+
+    @property
+    def started_at(self) -> Optional[datetime]:
+        """
+        Get the timestamp when the aggregated validation started
+        """
+        return self._overall_stats.get("started_at")
+
+    @property
+    def finished_at(self) -> Optional[datetime]:
+        """
+        Get the timestamp when the aggregated validation finished
+        """
+        return self._overall_stats.get("finished_at")
+
+    @property
+    def duration(self) -> float:
+        """
+        Get the total duration of the aggregated validation in seconds
+        """
+        return self._overall_stats.get("duration", 0.0)
+
+    def __compute_averall_stats__(self):
+        """
+        Compute the overall aggregated statistics
+        """
+        # Initialize the overall statistics
+        result = {
+            "profiles": set(),
+            "requirements": set(),
+            "checks": set(),
+            "checks_by_severity": {},
+            "failed_requirements": set(),
+            "failed_checks": set(),
+            "passed_requirements": set(),
+            "passed_checks": set(),
+            "started_at": None,
+            "finished_at": None,
+            "duration": 0.0
+        }
+
+        # Aggregate statistics from each ValidationStatistics instance
+        for stats in self._statistics_list:
+            # Aggregate profiles
+            for profile in stats.profiles:
+                result["profiles"].add(profile)
+
+            # Aggregate total requirements and checks
+            result["requirements"].update(stats.requirements)
+            result["checks"].update(stats.checks)
+            result["checks_by_severity"].update(stats.checks_by_severity)
+
+            # Aggregate failed and passed requirements and checks
+            result["failed_requirements"].update(stats.failed_requirements)
+            result["failed_checks"].update(stats.failed_checks)
+            result["passed_requirements"].update(stats.passed_requirements)
+            result["passed_checks"].update(stats.passed_checks)
+
+            # Aggregate started_at and finished_at
+            result["started_at"] = min(result["started_at"], stats.started_at) \
+                if result["started_at"] else stats.started_at
+            result["finished_at"] = max(result["finished_at"], stats.finished_at) \
+                if result["finished_at"] else stats.finished_at
+            # Aggregate duration
+            result["duration"] += stats.duration or 0.0
+
+        # Sort the sets to have consistent order
+        result["profiles"] = sorted(result["profiles"], key=lambda p: p.identifier)
+        result["requirements"] = sorted(result["requirements"], key=lambda r: r.identifier)
+        result["checks"] = sorted(result["checks"], key=lambda c: c.identifier)
+        result["checks_by_severity"] = {k: sorted(v, key=lambda c: c.identifier)
+                                        for k, v in result["checks_by_severity"].items()}
+        result["failed_requirements"] = sorted(result["failed_requirements"], key=lambda r: r.identifier)
+        result["failed_checks"] = sorted(result["failed_checks"], key=lambda c: c.identifier)
+        result["passed_requirements"] = sorted(result["passed_requirements"], key=lambda r: r.identifier)
+        result["passed_checks"] = sorted(result["passed_checks"], key=lambda c: c.identifier)
+
+        # return the aggregated statistics
+        return result
+
+
 class ValidationResult:
     """
     Represents the result of a validation.
@@ -1412,6 +2075,8 @@ class ValidationResult:
         self._executed_checks_results: dict[str, bool] = {}
         # keep track of the checks that have been skipped
         self._skipped_checks: set[RequirementCheck] = set()
+        # initialize the statistics
+        self._statistics = ValidationStatistics(context.settings)
 
     @property
     def context(self) -> ValidationContext:
@@ -1434,7 +2099,14 @@ class ValidationResult:
         """
         return self._validation_settings
 
+    @property
+    def statistics(self) -> ValidationStatistics:
+        """
+        The validation statistics
+        """
+        return self._statistics
     # --- Checks ---
+
     @property
     def executed_checks(self) -> set[RequirementCheck]:
         """
@@ -1675,6 +2347,8 @@ class ValidationSettings:
     metadata_only: bool = False
     #: RO-Crate metadata as dictionary
     metadata_dict: dict = None
+    #: Verbose output
+    verbose: bool = False
 
     def __post_init__(self):
         # if requirement_severity is a str, convert to Severity
@@ -1687,6 +2361,11 @@ class ValidationSettings:
         """
         result = asdict(self)
         result['rocrate_uri'] = str(self.rocrate_uri)
+        result.pop('metadata_dict', None)  # exclude metadata_dict from the dict representation
+        # Remove disable_crate_download from the dict representation
+        result.pop('disable_remote_crate_download', None)
+        # Remove requirement_severity_only from the dict representation
+        result.pop('requirement_severity_only', None)
         return result
 
     @property
@@ -1868,6 +2547,8 @@ class Validator(Publisher):
     def __init__(self, settings: Union[str, ValidationSettings]):
         self._validation_settings = ValidationSettings.parse(settings)
         super().__init__()
+        # initialize the current context
+        self.__current_context__ = None
 
     @property
     def validation_settings(self) -> ValidationSettings:
@@ -1938,45 +2619,63 @@ class Validator(Publisher):
 
         # initialize the validation context
         context = ValidationContext(self, self.validation_settings)
+        # register the current context
+        self.__current_context__ = context
 
-        # set the profiles to validate against
-        profiles = context.profiles
-        assert len(profiles) > 0, "No profiles to validate"
-        self.notify(EventType.VALIDATION_START)
-        for profile in profiles:
-            logger.debug("Validating profile %s (id: %s)", profile.name, profile.identifier)
-            self.notify(ProfileValidationEvent(EventType.PROFILE_VALIDATION_START, profile=profile))
-            # perform the requirements validation
-            requirements = profile.get_requirements(
-                context.requirement_severity, exact_match=context.requirement_severity_only)
-            logger.debug("Validating profile %s with %s requirements", profile.identifier, len(requirements))
-            logger.debug("For profile %s, validating these %s requirements: %s",
-                         profile.identifier, len(requirements), requirements)
-            terminate = False
-            for requirement in requirements:
-                if not requirement.overridden:
-                    self.notify(RequirementValidationEvent(
-                        EventType.REQUIREMENT_VALIDATION_START, requirement=requirement))
-                passed = requirement._do_validate_(context)
-                logger.debug("Requirement %s passed: %s", requirement.identifier, passed)
-                if not requirement.overridden:
-                    self.notify(RequirementValidationEvent(
-                        EventType.REQUIREMENT_VALIDATION_END, requirement=requirement, validation_result=passed))
-                if passed:
-                    logger.debug("Validation Requirement passed")
-                else:
-                    logger.debug(f"Validation Requirement {requirement} failed (profile: {profile.identifier})")
-                    if context.fail_fast:
-                        logger.debug("Aborting on first requirement failure")
-                        terminate = True
-                        break
-            self.notify(ProfileValidationEvent(EventType.PROFILE_VALIDATION_END, profile=profile))
-            if terminate:
-                break
-        self.notify(ValidationEvent(EventType.VALIDATION_END,
-                    validation_result=context.result))
+        try:
 
-        return context.result
+            # set the profiles to validate against
+            profiles = context.profiles
+            assert len(profiles) > 0, "No profiles to validate"
+            self.notify(EventType.VALIDATION_START)
+            for profile in profiles:
+                logger.debug("Validating profile %s (id: %s)", profile.name, profile.identifier)
+                # set the target profile in the context
+                context._target_validation_profile = profile
+                self.notify(ProfileValidationEvent(EventType.PROFILE_VALIDATION_START, profile=profile))
+                # perform the requirements validation
+                requirements = profile.get_requirements(
+                    context.requirement_severity, exact_match=context.requirement_severity_only)
+                logger.debug("Validating profile %s with %s requirements", profile.identifier, len(requirements))
+                logger.debug("For profile %s, validating these %s requirements: %s",
+                             profile.identifier, len(requirements), requirements)
+                terminate = False
+                for requirement in requirements:
+                    if not requirement.overridden:
+                        self.notify(RequirementValidationEvent(
+                            EventType.REQUIREMENT_VALIDATION_START, requirement=requirement))
+                    passed = requirement._do_validate_(context)
+                    logger.debug("Requirement %s passed: %s", requirement.identifier, passed)
+                    if not requirement.overridden:
+                        self.notify(RequirementValidationEvent(
+                            EventType.REQUIREMENT_VALIDATION_END, requirement=requirement, validation_result=passed))
+                    if passed:
+                        logger.debug("Validation Requirement passed")
+                    else:
+                        logger.debug(f"Validation Requirement {requirement} failed (profile: {profile.identifier})")
+                        if context.fail_fast:
+                            logger.debug("Aborting on first requirement failure")
+                            terminate = True
+                            break
+                self.notify(ProfileValidationEvent(EventType.PROFILE_VALIDATION_END, profile=profile))
+                if terminate:
+                    break
+            self.notify(ValidationEvent(EventType.VALIDATION_END,
+                        validation_result=context.result))
+
+            return context.result
+        finally:
+            # clear the current context
+            self.__current_context__ = None
+
+    def notify(self, event: Union[Event, EventType]):
+        """ Override notify to update statistics """
+        assert self.__current_context__ is not None, "No current validation context"
+        result: ValidationResult = self.__current_context__.result
+        if isinstance(event, EventType):
+            event = Event(event)
+        result.statistics.update(event, ctx=self.__current_context__)
+        return super().notify(event, ctx=self.__current_context__)
 
 
 class ValidationContext:
@@ -1993,6 +2692,8 @@ class ValidationContext:
         self._data_graph = None
         # reference to the profiles
         self._profiles = None
+        # reference to the target profile
+        self._target_validation_profile = None
         # reference to the validation result
         self._result = None
         # additional properties for the context
@@ -2276,6 +2977,16 @@ class ValidationContext:
         if not self._profiles:
             self._profiles = self.__load_profiles__()
         return self._profiles.copy()
+
+    @property
+    def target_validation_profile(self) -> Profile:
+        """
+        The target validation profile to validate against
+
+        :return: The target validation profile
+        :rtype: Profile
+        """
+        return self._target_validation_profile
 
     @property
     def target_profile(self) -> Profile:

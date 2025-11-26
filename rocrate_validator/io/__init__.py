@@ -11,19 +11,3 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-import os
-
-import rocrate_validator.log as logging
-
-# set up logging
-logger = logging.getLogger(__name__)
-
-
-def running_in_jupyter():
-    # Environment variable set by Jupyter to indicate
-    # the process ID (PID) of the Jupyter server
-    # that launched the current kernel.
-    # It is mainly used internally to track the parent process
-    # and manage kernel lifecycle.
-    return 'JPY_PARENT_PID' in os.environ
