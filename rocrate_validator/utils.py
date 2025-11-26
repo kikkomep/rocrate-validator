@@ -403,6 +403,7 @@ class HttpRequester:
     def __init__(self,
                  cache_max_age: int = constants.DEFAULT_HTTP_CACHE_MAX_AGE,
                  cache_path: Optional[str] = None):
+        logger.debug(f"Initializing instance of {self.__class__.__name__} {self}")
         # check if the instance is already initialized
         if not hasattr(self, "_initialized"):
             # check if the instance is already initialized
@@ -410,6 +411,13 @@ class HttpRequester:
                 if not getattr(self, "_initialized", False):
                     # set the initialized flag
                     self._initialized = False
+                    # store the parameters
+                    try:
+                        logger.debug(f"Setting cache_max_age to {cache_max_age}")
+                        self.cache_max_age = int(cache_max_age)
+                    except ValueError:
+                        raise TypeError("cache_max_age must be an integer")
+                    self.cache_path_prefix = cache_path
                     # initialize the session
                     self.__initialize_session__()
                     # set the initialized flag
