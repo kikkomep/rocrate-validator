@@ -68,6 +68,19 @@ These instructions assume you are familiar with code development using Python an
       is not mandatory - you can also label individual checks/shapes with 
       ``sh:severity`` in the SHACL code instead.
 
+#. Optionally, associate an ontology graph with the profile by providing 
+   an ``ontology.ttl`` file alongside the SHACL files. 
+   This graph is merged into the crate's data graph at validation time, 
+   allowing you to define formal relationships and additional definitions 
+   between profile entities. For example, you can use a specific subclass 
+   in the crate while the profile expects only a more general superclass, 
+   and the ontology clarifies their relationship.
+   
+   .. warning::
+
+      Including an ontology can significantly impact validation times and 
+      overall performance, especially for large graphs. Use with caution.
+
 #. From the root folder of the repo, create a test folder for the profile 
    under 
    `tests/integration/profiles <https://github.com/crs4/rocrate-validator/tree/develop/tests/integration/profiles>`_. The name should match the folder you made earlier.
