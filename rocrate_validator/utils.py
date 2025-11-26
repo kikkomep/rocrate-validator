@@ -425,7 +425,7 @@ class HttpRequester:
         # check if requests_cache is installed
         # and set up the cached session
         try:
-            if constants.DEFAULT_HTTP_CACHE_TIMEOUT > 0:
+            if cache_max_age >= 0:
                 from requests_cache import CachedSession
 
                 # Generate a random path for the cache
