@@ -2592,6 +2592,14 @@ class Validator(Publisher):
                     if inherited_profile in candidate_profiles:
                         candidate_profiles.remove(inherited_profile)
             logger.debug("%d Candidate Profiles found: %s", len(candidate_profiles), candidate_profiles)
+            # unmatched candidate profiles
+            unmatched_profiles = candidate_profiles_uris.difference(set(p.uri for p in profiles))
+            logger.debug("Unmatched Candidate Profiles URIs: %s", unmatched_profiles)
+            if len(unmatched_profiles) > 0:
+                logger.warning(
+                    "The conformance to the following profiles could not be verified: %s",
+                    unmatched_profiles,
+                )
             return candidate_profiles
 
         except Exception as e:
