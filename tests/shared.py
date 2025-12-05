@@ -39,6 +39,7 @@ PREFIX schema: <http://schema.org/>
 PREFIX shp:    <https://w3id.org/shp#>
 PREFIX rdf:    <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 PREFIX rocrate: <https://github.com/crs4/rocrate-validator/profiles/ro-crate/>
+PREFIX dct: <http://purl.org/dc/terms/>
 """
 
 
