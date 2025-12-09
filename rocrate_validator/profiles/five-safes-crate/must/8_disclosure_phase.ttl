@@ -128,7 +128,7 @@ five-safes-crate:DisclosureObjectHasCompliantStartTimeFormat
         sh:message "`DisclosureCheck` --> `startTime` MUST follow the RFC 3339 standard (YYYY-MM-DD'T'hh:mm:ss[.fraction](Z | ±hh:mm))." ;
     ] .
 
-    
+
 five-safes-crate:DisclosureObjectHasCompliantEndTimeFormat
     a sh:NodeShape ;
     sh:name "DisclosureCheck" ;
