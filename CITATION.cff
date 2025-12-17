@@ -13,6 +13,12 @@ authors:
   - family-names: "Pireddu"
     given-names: "Luca"
     orcid: https://orcid.org/0000-0002-4663-5613
+  - family-names: Chadwick
+    given-names: Eli
+    orcid: https://orcid.org/0000-0002-0035-6475
+  - family-names: Bauer
+    given-names: Daniel
+    orcid: https://orcid.org/0000-0001-9447-460X
 repository-code: "https://github.com/crs4/rocrate-validator"
 url: "https://github.com/crs4/rocrate-validator"
 keywords:
