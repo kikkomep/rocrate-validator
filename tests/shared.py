@@ -114,7 +114,9 @@ def do_entity_test(
     **kwargs,
 ):
     """
-    Shared function to test a RO-Crate entity
+    Shared function to test a RO-Crate entity.
+
+    Additional keyword arguments (kwargs) are passed along to initialise ValidationSettings.
     """
     assert not (rocrate_entity_patch and rocrate_entity_mod_sparql), \
         "Cannot use rocrate_entity_patch and rocrate_entity_mod_sparql together"
