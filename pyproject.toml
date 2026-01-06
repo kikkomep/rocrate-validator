@@ -105,3 +105,6 @@ skip_dirs = [".git", ".github", ".vscode"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.typos.files]
+extend-exclude = ["tests/data","docs/diagrams","*.json","*.html","*__init__.py"]
