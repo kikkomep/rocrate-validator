@@ -25,9 +25,9 @@ env:
     FORCE_COLOR: "1"  # Force color output in CI
 
 jobs:
-    # Verifies pep8, pyflakes and circular complexity
-    flake8:
-        name: 🚨 Lint Python Code
+    # Verifies pep8, pyflakes, circular complexity, and spelling
+    lint:
+        name: 🚨 Lint and spellcheck
         runs-on: ubuntu-latest
         steps:
             # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
@@ -39,18 +39,10 @@ jobs:
                   python-version: ${{ env.PYTHON_VERSION }}
             - name: 🔽 Install flake8
               run: pip install flake8
-            - name: ⌛ Run checks
+            - name: ⌛ Lint Python code
               run: flake8 -v rocrate_validator tests
-
-    typos:
-      name: 🚨 Spell check profiles
-      runs-on: ubuntu-latest
-      steps:
-        - name: Checkout code
-          uses: actions/checkout@v5
-        - name: Spell check profiles
-          uses: crate-ci/typos@v1.41.0
-
+            - name: ⌛ Spell check code and profiles (covers Python and SHACL)
+              uses: crate-ci/typos@v1.41.0
 
     # Runs the tests
     test:
