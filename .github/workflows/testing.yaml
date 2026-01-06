@@ -50,7 +50,8 @@ jobs:
           uses: actions/checkout@v5
         - name: Spell check profiles
           uses: crate-ci/typos@v1.41.0
-          working-directory: rocrate_validator/profiles
+          with:
+            files: rocrate_validator/profiles
 
 
     # Runs the tests
