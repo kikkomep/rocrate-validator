@@ -42,6 +42,17 @@ jobs:
             - name: ⌛ Run checks
               run: flake8 -v rocrate_validator tests
 
+    typos:
+      name: 🚨 Spell check profiles
+      runs-on: ubuntu-latest
+      steps:
+        - name: Checkout code
+          uses: actions/checkout@v5
+        - name: Spell check profiles
+          uses: crate-ci/typos@v1.41.0
+          working-directory: rocrate_validator/profiles
+
+
     # Runs the tests
     test:
         name: ⌛ Run tests
