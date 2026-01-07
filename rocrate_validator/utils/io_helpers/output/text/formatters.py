@@ -19,9 +19,9 @@ from rich.console import ConsoleOptions, RenderResult
 from rich.markdown import Markdown
 from rich.padding import Padding
 
-import rocrate_validator.log as logging
-from rocrate_validator.colors import get_severity_color
-from rocrate_validator.rocv_io.output.text.layout.report import \
+from rocrate_validator.utils import log as logging
+from rocrate_validator.utils.io_helpers.colors import get_severity_color
+from rocrate_validator.utils.io_helpers.output.text.layout.report import \
     ValidationReportLayout
 from rocrate_validator.models import ValidationResult, ValidationStatistics
 

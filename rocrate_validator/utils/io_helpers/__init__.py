@@ -11,10 +11,3 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-def get_version():
-    from rocrate_validator.utils.versioning import get_version
-    return get_version()
-
-
-__version__ = get_version()
