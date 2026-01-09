@@ -1672,8 +1672,9 @@ class ValidationStatistics(Subscriber):
                         continue
                     # count the checks
                     requirement_checks = [_ for _ in requirement.get_checks_by_level(LevelCollection.get(severity.name))
-                                          if not _.overridden or
-                                          _.requirement.profile.identifier == target_profile_identifier]
+                                          if _.identifier not in validation_settings.skip_checks and
+                                          (not _.overridden or
+                                          _.requirement.profile.identifier == target_profile_identifier)]
                     num_checks = len(requirement_checks)
                     requirement_checks_count += num_checks
                     if num_checks > 0:
