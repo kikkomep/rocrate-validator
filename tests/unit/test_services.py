@@ -106,6 +106,37 @@ def test_valid_local_workflow_testing_ro_crate():
         "Expected the 'workflow-testing-ro-crate-0.1' profile"
 
 
+def test_disable_inherited_profiles_issue_reporting():
+    # Set the rocrate_uri to the workflow testing RO-Crate
+    crate_path = ValidROC().workflow_testing_ro_crate
+    logger.debug("Validating a local RO-Crate: %s", crate_path)
+
+    # First, validate with inherited profiles issue reporting enabled
+    settings = ValidationSettings(
+        rocrate_uri=crate_path,
+        disable_inherited_profiles_issue_reporting=False
+    )
+    result = validate(settings)
+    total_issues_with_inheritance = len(result.get_issues())
+    logger.debug("Total issues with inherited profiles issue reporting enabled: %d", total_issues_with_inheritance)
+
+    # Now, validate with inherited profiles issue reporting disabled
+    settings.disable_inherited_profiles_issue_reporting = True
+    result = validate(settings)
+    total_issues_without_inheritance = len(result.get_issues())
+    logger.debug("Total issues with inherited profiles issue reporting disabled: %d", total_issues_without_inheritance)
+
+    # Check that disabling inherited profiles issue reporting reduces the number of reported issues
+    assert total_issues_without_inheritance <= total_issues_with_inheritance, \
+        "Disabling inherited profiles issue reporting should not increase the number of reported issues"
+
+    # Check that all reported issues are from the main profile
+    main_profile_identifier = "workflow-testing-ro-crate-0.1"
+    for issue in result.get_issues():
+        assert issue.check.profile.identifier == main_profile_identifier, \
+            "All reported issues should belong to the main profile when inherited profiles issue reporting is disabled"
+
+
 def test_valid_local_multi_profile_crate():
     # Set the rocrate_uri to the multi-profile RO-Crate
     crate_path = InvalidMultiProfileROC().invalid_multi_profile_crate
