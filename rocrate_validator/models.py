@@ -1016,6 +1016,7 @@ class Requirement(ABC):
                     logger.debug("Skipping check '%s' because overridden by '%r'",
                                  check.identifier, [_.identifier for _ in check.overridden_by])
                     continue
+                # Determine whether to skip event notification for inherited profiles
                 skip_event_notify = False
                 if check.requirement.profile.identifier != context.profile_identifier and \
                         context.settings.disable_inherited_profiles_issue_reporting:
@@ -1023,19 +1024,24 @@ class Requirement(ABC):
                                  "Skipping requirement %s as it belongs to an inherited profile %s",
                                  check.requirement.identifier, check.requirement.profile.identifier)
                     skip_event_notify = True
+                # Notify the start of the check execution if not skip_event_notify is set to True
                 if not skip_event_notify:
                     context.validator.notify(RequirementCheckValidationEvent(
                         EventType.REQUIREMENT_CHECK_VALIDATION_START, check))
+                # Execute the check
                 check_result = check.execute_check(context)
                 logger.debug("Result of check %s: %s", check.identifier, check_result)
                 context.result._add_executed_check(check, check_result)
+                # Notify the end of the check execution if not skip_event_notify is set to True
                 if not skip_event_notify:
                     context.validator.notify(RequirementCheckValidationEvent(
                         EventType.REQUIREMENT_CHECK_VALIDATION_END, check, validation_result=check_result))
                 logger.debug("Ran check '%s'. Got result %s", check.identifier, check_result)
+                # Ensure the check result is a boolean
                 if not isinstance(check_result, bool):
                     logger.warning("Ignoring the check %s as it returned the value %r instead of a boolean", check.name)
                     raise RuntimeError(f"Ignoring invalid result from check {check.name}")
+                # Aggregate the check result
                 all_passed = all_passed and check_result
                 if not all_passed and context.fail_fast:
                     break
