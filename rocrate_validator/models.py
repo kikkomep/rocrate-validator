@@ -1640,7 +1640,7 @@ class ValidationStatistics(Subscriber):
         profiles = [profile]
 
         # add inherited profiles if enabled
-        if validation_settings.enable_profile_inheritance:
+        if not validation_settings.disable_inherited_profiles_issue_reporting:
             profiles.extend(profile.inherited_profiles)
         logger.debug("Inherited profiles: %r", profile.inherited_profiles)
 
