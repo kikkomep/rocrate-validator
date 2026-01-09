@@ -2364,7 +2364,7 @@ class ValidationSettings:
     #: Flag to abort on first error
     abort_on_first: Optional[bool] = False
     #: Flag to disable reporting of issues related to inherited profiles
-    disable_inherited_profiles_issue_reporting: bool = True
+    disable_inherited_profiles_issue_reporting: bool = False
     #: Flag to disable remote crate download
     disable_remote_crate_download: bool = True
     # Requirement settings
