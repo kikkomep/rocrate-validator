@@ -2340,6 +2340,14 @@ class ValidationSettings:
     #: The profile identifier to validate against
     profile_identifier: str = DEFAULT_PROFILE_IDENTIFIER
     #: Flag to enable profile inheritance
+    # Use the `enable_profile_inheritance` flag with caution: disable inheritance only if the
+    # target validation profile is fully self-contained and does not rely on definitions
+    # from inherited profiles (e.g., entities defined upstream). For modularization
+    # purposes, some base entities and properties are defined in the base RO-Crate
+    # profile and are intentionally not redefined in specialized profiles; they are
+    # required for validations targeting those specializations and therefore cannot be skipped.
+    # Nevertheless, the validator can still suppress issue reporting for checks defined
+    # in inherited profiles by setting disable_inherited_profiles_issue_reporting to `True`.
     enable_profile_inheritance: bool = True
     # Validation settings
     #: Flag to abort on first error
