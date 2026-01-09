@@ -1007,10 +1007,12 @@ class Requirement(ABC):
 
         logger.debug("Running %s checks for Requirement '%s'", len(self._checks), self.name)
         all_passed = True
-        for check in [_ for _ in self._checks
-                      if not context.settings.skip_checks
-                      or _.identifier not in context.settings.skip_checks]:
-
+        checks_to_perform = [
+            _ for _ in self._checks
+            if not context.settings.skip_checks
+            or _.identifier not in context.settings.skip_checks
+        ]
+        for check in checks_to_perform:
             try:
                 if check.overridden and not check.requirement.profile.identifier == context.profile_identifier:
                     logger.debug("Skipping check '%s' because overridden by '%r'",
@@ -1055,7 +1057,8 @@ class Requirement(ABC):
                 logger.warning("Consider reporting this as a bug.")
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.exception(e)
-
+        skipped_checks = set(self._checks) - set(checks_to_perform)
+        context.result.skipped_checks.update(skipped_checks)
         logger.debug("Checks for Requirement '%s' completed. Checks passed? %s", self.name, all_passed)
         return all_passed
 
