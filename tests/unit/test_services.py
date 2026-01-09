@@ -21,7 +21,7 @@ from rocrate_validator.utils import log as logging
 from rocrate_validator.models import ValidationSettings
 from rocrate_validator.rocrate import ROCrateMetadata
 from rocrate_validator.services import detect_profiles, get_profiles, validate
-from tests.ro_crates import InvalidMultiProfileROC, ValidROC
+from tests.ro_crates import InvalidMultiProfileROC, ValidROC, InvalidFileDescriptorEntity
 
 # set up logging
 logger = logging.getLogger(__name__)
@@ -135,6 +135,33 @@ def test_disable_inherited_profiles_issue_reporting():
     for issue in result.get_issues():
         assert issue.check.profile.identifier == main_profile_identifier, \
             "All reported issues should belong to the main profile when inherited profiles issue reporting is disabled"
+
+
+def test_skip_pycheck_on_workflow_ro_crate():
+    # Set the rocrate_uri to the workflow testing RO-Crate
+    crate_path = InvalidFileDescriptorEntity().invalid_conforms_to
+    logger.debug("Validating a local RO-Crate: %s", crate_path)
+    settings = ValidationSettings(rocrate_uri=crate_path)
+    result = validate(settings)
+    assert not result.passed(), \
+        "The RO-Crate is expected to be invalid because of an incorrect conformsTo field and missing resources"
+    assert len(result.failed_checks) == 2, "No failed checks expected when skipping the problematic check"
+    assert any(check.identifier == "ro-crate-1.1_5.3" for check in result.failed_checks), \
+        "Expected the check 'ro-crate-1.1_5.3' to fail"
+    assert any(check.identifier == "ro-crate-1.1_12.1" for check in result.failed_checks), \
+        "Expected the check 'ro-crate-1.1_12.1' to fail"
+
+    # Perform a new validation skipping specific checks
+    settings.skip_checks = ["ro-crate-1.1_5.3", "ro-crate-1.1_12.1"]
+    result = validate(settings)
+    assert result.passed(), \
+        "The RO-Crate should be valid when skipping the checks related to the invalid file descriptor entity"
+
+    # Ensure that the skipped checks are indeed skipped
+    skipped_check_ids = {check.identifier for check in result.skipped_checks}
+    # logger.error("Skipped checks: %s", result.skipped_checks)
+    assert "ro-crate-1.1_5.3" in skipped_check_ids, "Expected check 'ro-crate-1.1_5.3' to be skipped"
+    assert "ro-crate-1.1_12.1" in skipped_check_ids, "Expected check 'ro-crate-1.1_12.1' to be skipped"
 
 
 def test_valid_local_multi_profile_crate():

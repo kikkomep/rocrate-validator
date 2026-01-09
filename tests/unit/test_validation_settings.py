@@ -24,6 +24,7 @@ def test_validation_settings_parse_dict():
         "requirement_severity": "RECOMMENDED",
         "enable_profile_inheritance": False,
         "disable_inherited_profiles_issue_reporting": True,
+        "skip_checks": ["check1", "check2"]
     }
     settings = ValidationSettings.parse(settings_dict)
     assert str(settings.rocrate_uri) == "/path/to/data"
@@ -31,6 +32,7 @@ def test_validation_settings_parse_dict():
     assert settings.requirement_severity == Severity.RECOMMENDED
     assert settings.enable_profile_inheritance is False
     assert settings.disable_inherited_profiles_issue_reporting is True
+    assert settings.skip_checks == ["check1", "check2"]
 
 
 def test_validation_settings_parse_object():
@@ -40,6 +42,7 @@ def test_validation_settings_parse_object():
         requirement_severity=Severity.RECOMMENDED,
         enable_profile_inheritance=False,
         disable_inherited_profiles_issue_reporting=True,
+        skip_checks=["check1", "check2"]
     )
     settings = ValidationSettings.parse(existing_settings)
     assert str(settings.rocrate_uri) == "/path/to/data"
@@ -47,6 +50,7 @@ def test_validation_settings_parse_object():
     assert settings.requirement_severity == Severity.RECOMMENDED
     assert settings.enable_profile_inheritance is False
     assert settings.disable_inherited_profiles_issue_reporting is True
+    assert settings.skip_checks == ["check1", "check2"]
 
 
 def test_validation_settings_parse_invalid_type():
