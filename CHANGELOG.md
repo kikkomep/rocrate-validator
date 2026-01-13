@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - :sparkles: add support for overrides to the `Profile` model
 - :sparkles: add utility method to shorten a given path
 - :sparkles: add internal utility to shorten paths
-- :sparkles: add support for `extra-ptofiles-path` option in `profile` command
+- :sparkles: add support for `extra-profiles-path` option in `profile` command
 - :sparkles: add support for the `extra-profiles-paths` in the `validate` process
 - :sparkles: add support for the `extra-profiles-path` option in the `validate` command
 - :test_tube: add unit tests for the `services` module
@@ -51,10 +51,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - :rotating_light: fix linter warning E501
 - :rotating_light: fix linter warning E999
 - :rotating_light: fix linter warnings W{2,3}91
-- :bug: fix initialisation of Bagit objects
+- :bug: fix initialisation of BagIt objects
 - :bug: fix fallback value for root path
-- :bug: fix initialisation of BagitROCrate objects
-- :bug: use the custom class for remote Bagit RO-Crate objects
+- :bug: fix initialisation of BagItROCrate objects
+- :bug: use the custom class for remote BagIt RO-Crate objects
 - :ambulance: fix availability check of external resources
 - :bug: fix RO-Crate path
 - :white_check_mark: fix and extend test data
@@ -68,7 +68,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - :lipstick: fix missing padding
 - :adhesive_bandage: restructure logic to process CLI text output of validation result
 - :bug: fix formatter parameter
-- :recycle: rivise logic to detect profile overrides
+- :recycle: revise logic to detect profile overrides
 - :ambulance: fix SHACL nodeKind constraint being too strict
 - Fix some typos
 - Fix with typos package
@@ -545,7 +545,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - :sparkles: add minimal dict serializers for the Profile and RequirementCheck models
 - :zap: add `to_dict` serializer methods
-- :zap: add rocrate-validator version to the JSON ouput
+- :zap: add rocrate-validator version to the JSON output
 
 ### Fixed
 
@@ -873,7 +873,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - :sparkles: add requirement for Data Root Entity existence
 - :sparkles: add requirement for the type of the Root Data Entity
 - :white_check_mark: add test for the root data entity type
-- :sparkles: add datePublished requiremnt for Root Data Entity
+- :sparkles: add datePublished requirement for Root Data Entity
 - :white_check_mark: add test for the required datePublished property of RDE
 - :white_check_mark: add test of recommended name of root data entity
 - :adhesive_bandage: add missing class type for license entity
@@ -936,8 +936,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add tests for readme
 - Add check for wroc license
 - Added check for tests and examples directories
-- Add check for bioschemas conformancee
-- Add pytest-xdist to test depedencies
+- Add check for bioschemas conformance
+- Add pytest-xdist to test dependencies
 - :sparkles: add `MultiIndexMap` class
 - :sparkles: add getters for the properties of the profile specification
 - :sparkles: add methods to get profiles by different criteria
@@ -1066,16 +1066,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - :bug: fix test data
 - :pencil2: fix typo
 - :white_check_mark: fix test data
-- :bug: redifine check of value restriction of directory identifier
+- :bug: redefine check of value restriction of directory identifier
 - :sparkles: update query to identify Directory DataEntity instances
 - :bug: allow to store parent nodes
-- :bug: fix requiremnts loading
+- :bug: fix requirements loading
 - :bug: properly set flag to enable/disable profile inheritance
 - :ambulance: fix shape target
 - :bug: value is not always present in a violationResult
 - :bug: wrong URI to reference the focusNode
-- :white_check_mark: fix missing encondings on valid crate
-- :pencil2: Foldeds -> Directories
+- :white_check_mark: fix missing encodings on valid crate
+- :pencil2: Folders -> Directories
 - :bug: missing property injection
 - :bug: improve validation of contentSize check
 - :pencil2: fix sdDatePublished
@@ -1086,7 +1086,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - :ambulance: fix fail fast evaluation
 - :ambulance: fix the sorting issue with profiles
 - :ambulance: allow more generic DataEntity instances
-- :white_check_mark: fix missing contextual entities for some enconding format
+- :white_check_mark: fix missing contextual entities for some encoding format
 - :white_check_mark: update test data
 - :ambulance: update rule to define the CreativeWorkAuthor as subclass of person
 - :sparkles: an organization can act as root data entity author
@@ -1249,7 +1249,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Docs
 
 - :memo: just one note about the CLI entrypoint
-- :memo: update description of JSON format requirment check
+- :memo: update description of JSON format requirement check
 - :memo: update description of check context
 - :memo: initial README
 - :page_facing_up: update license badge
@@ -1280,7 +1280,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - :sparkles: extend profile with inherited profiles
 - :sparkles: extend validation process to include inherited profiles
 - :sparkles: improve comparison between objects
-- :sparkles: allow to filter profile requirments by severity
+- :sparkles: allow to filter profile requirements by severity
 - :sparkles: improve shapes loading
 - :sparkles: associate IDs to the requirement checks
 - :bug: update query to parse shapes
@@ -1300,7 +1300,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - :sparkles: redefine shape to check existence of file descriptor entity
 - :zap: improve loading of shacl shapes
 - :sparkles: advanced feature should be enabled by default
-- :sparkles: allow to retrive shapes by hash
+- :sparkles: allow to retrieve shapes by hash
 - :sparkles: allow to retrieve check instances by shape hash
 - :sparkles: expose the global graph of shapes
 - :sparkles: always perform checks using the global graph of shapes
@@ -1339,7 +1339,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - :sparkles: inject resultPath of violation result on check issue instances
 - :lipstick: enable markdown on issue description
 - :sparkles: recommend a Contextual Entity for the organizational affiliation
-- :sparkles: allow more complex types of MIME types for the encondingFormat pronom
+- :sparkles: allow more complex types of MIME types for the encodingFormat pronom
 - :sparkles: Value restriction of the recommended `publisher` property
 - :sparkles: validate RECOMMENDED publisher value
 - :sparkles: define the default filename for the profile specification
@@ -1349,7 +1349,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - :sparkles: allow to get profile by token
 - :sparkles: update the `profiles list` output
 - :sparkles: allow to extract profile version according to different criteria
-- :sparkles: allow to get Profile instances by identitier
+- :sparkles: allow to get Profile instances by identifier
 - :sparkles: enable more flexible folder structure for profiles
 - :sparkles: enable simplified profile selection using the latest version
 - :sparkles: fail fast SHACL validation when JSON data are invalid
@@ -1390,7 +1390,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - :sparkles: define a local prefix for the validator entities
 - :sparkles: programmatically disallow property injection
 - :sparkles: automatically generate name and description of nodes and properties
-- :building_construction: generalize the check of processed nodes to avoid infinte loops
+- :building_construction: generalize the check of processed nodes to avoid infinite loops
 - :sparkles: enable a step to check code linting
 - :sparkles: wrap console object
 - :sparkles: do not print formatted validation report when format is different `text`
@@ -1418,7 +1418,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - :recycle: generic function to load graphs from paths
 - :fire: disable ontologies parameter
 - :truck: move SHACL validator to a dedicated package
-- :recycle: use contant module to define allowed values of params
+- :recycle: use constant module to define allowed values of params
 - :recycle: use format to denote graph types
 - :recycle: move constants to the constants module
 - :recycle: rename enum to represent the severity level
@@ -1443,7 +1443,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - :building_construction: rename table title
 - :label: more specific typings
 - :loud_sound: update log level
-- :recycle: redifine sh:property uri
+- :recycle: redefine sh:property uri
 - :recycle: minor changes
 - :art: reorganize imports
 - :truck: rename requirements files
@@ -1474,7 +1474,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - :recycle: update SHACL check
 - :recycle: generalize Shape as specialisation of the generic SHACLNode
 - :recycle: generalise NodeShape as specialisation of Shape, NodeCollection
-- :loud_sound: udpate logs
 - :lipstick: update colors and styles of validation results
 - :lipstick: update colors and styles of the `profiles describe` command
 - :lipstick: update colors on footnotes
@@ -1498,7 +1497,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - :recycle: redefine hash for shape objects
 - :recycle: update `ShapeRegistry` to use reference shapes by key
 - :building_construction: simplify getter of the sourceShape property
-- :recycle: use the appropriate function ot retrieve the shape from the registry
+- :recycle: use the appropriate function of retrieve the shape from the registry
 - :recycle: refactor profiles loader
 - :recycle: refactor profile loading
 - :recycle: update initialisation of profiles before validation
@@ -1518,7 +1517,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - :recycle: factorise initialisation of validator object
 - :recycle: update `get_conforms_to` implementation
 - :art: remote blank line
-- :lipstick: update style of mulitple choice element
+- :lipstick: update style of multiple choice element
 - :lipstick: update layout of validate output
 - :recycle: hide the shape that only expand the data graph
 - :loud_sound: update log
