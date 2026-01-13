@@ -108,4 +108,4 @@ skip_dirs = [".git", ".github", ".vscode"]
 testpaths = ["tests"]
 
 [tool.typos.files]
-extend-exclude = ["tests/data","docs/diagrams","*.json","*.html","*__init__.py"]
+extend-exclude = ["tests/data","docs/diagrams","*.json","*.html","*__init__.py", "cliff.toml"]
