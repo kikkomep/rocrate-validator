@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-02-18
+
+Full changelog: https://github.com/crs4/rocrate-validator/compare/0.8.0...0.8.1
+
+### 🔧 Changed
+
+- refactor(core): rename flag `disable_inherited_profiles_reporting` to `disable_inherited_profiles_issue_reporting` ([daebea1](https://github.com/crs4/rocrate-validator/commit/daebea1))
+- refactor(core): set `disable_inherited_profiles_issue_reporting` to disabled by default ([c8e7de7](https://github.com/crs4/rocrate-validator/commit/c8e7de7))
+- refactor(core): skip inherited profile event notifications when issue reporting is disabled ([c8ad7b9](https://github.com/crs4/rocrate-validator/commit/c8ad7b9))
+- build(poetry): allow using the latest PySHACL version ([fde97be](https://github.com/crs4/rocrate-validator/commit/fde97be))
+
+### 🐛 Fixed
+
+- fix(cli): fix `rich` deprecation warning ([dbdfae5](https://github.com/crs4/rocrate-validator/commit/dbdfae5))
+- fix(core): ensure skipped checks are reported properly ([471745b](https://github.com/crs4/rocrate-validator/commit/471745b))
+- fix(cli): wrong param name ([38f22ff](https://github.com/crs4/rocrate-validator/commit/38f22ff))
+- fix(core): ensure skip_checks is defined before use ([04988b1](https://github.com/crs4/rocrate-validator/commit/04988b1))
+- fix(core): enable skipping of Python checks ([efcad8b](https://github.com/crs4/rocrate-validator/commit/efcad8b))
+- fix(core): enable skipping of SHACL checks ([9141a72](https://github.com/crs4/rocrate-validator/commit/9141a72))
+- fix(core): exclude skipped checks from stats ([4a27eb9](https://github.com/crs4/rocrate-validator/commit/4a27eb9))
+- fix(core): remove inherited checks from stats when `disable_inherited_profiles_issue_reporting` is set ([f6e15b7](https://github.com/crs4/rocrate-validator/commit/f6e15b7))
+- fix(cli): make the `disable_profile_inheritance` CLI flag affect only reporting (not loading) of inherited profiles ([d6f9192](https://github.com/crs4/rocrate-validator/commit/d6f9192))
+
+### 🗑️ Removed
+
+- chore: filter `rdflib` JSON-LD deprecation warnings ([c6da40a](https://github.com/crs4/rocrate-validator/commit/c6da40a))
+
+### 📚 Documentation
+
+- docs(core): clarify the proper usage of the `enable_profile_inheritance` flag ([cd3af57](https://github.com/crs4/rocrate-validator/commit/cd3af57))
+- docs(core): improve code documentation with additional comments ([cd03486](https://github.com/crs4/rocrate-validator/commit/cd03486))
+
 ## [0.8.0] - 2026-01-07
 
 ### ✨ Added
