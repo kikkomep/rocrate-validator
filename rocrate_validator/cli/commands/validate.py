@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import sys
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Optional
 
@@ -472,7 +473,7 @@ def validate(ctx,
                     console.print(f"\n{' '*2}📋 [bold]The validation report in JSON format: [/bold]\n")
 
             # Generate the JSON output and write it to the specified output file or to stdout
-            with open(output_file, "w", encoding="utf-8") if output_file else sys.stdout as f:
+            with open(output_file, "w", encoding="utf-8") if output_file else nullcontext(sys.stdout) as f:
                 out = Console(width=output_line_width, file=f)
                 out.register_formatter(JSONOutputFormatter())
                 out.print(results)
