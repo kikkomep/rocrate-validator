@@ -203,7 +203,12 @@ def test_missing_absolute_path_data_entity():
 
 def test_valid_rocrate_with_data_entities():
     """"""
-    do_entity_test(ValidROC().rocrate_with_data_entities, models.Severity.REQUIRED, True, profile_identifier="ro-crate")
+    do_entity_test(
+        ValidROC().rocrate_with_data_entities,
+        models.Severity.REQUIRED,
+        True,
+        profile_identifier="ro-crate-1.1"
+    )
 
 
 @pytest.mark.parametrize(
