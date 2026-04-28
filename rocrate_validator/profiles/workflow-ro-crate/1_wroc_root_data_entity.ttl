@@ -15,35 +15,26 @@
 @prefix ro: <./> .
 @prefix ro-crate: <https://github.com/crs4/rocrate-validator/profiles/ro-crate/> .
 @prefix workflow-ro-crate: <https://github.com/crs4/rocrate-validator/profiles/workflow-ro-crate/> .
-@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 @prefix schema: <http://schema.org/> .
 @prefix bioschemas: <https://bioschemas.org/> .
 @prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix validator: <https://github.com/crs4/rocrate-validator/> .
 
-workflow-ro-crate:FindTestDir a sh:NodeShape ;
-    sh:name "test directory" ;
-    sh:description "Dataset data entity to hold tests" ;
-    sh:targetNode ro:test\/ ;
+workflow-ro-crate:WROCRootDataEntityRequiredProperties a sh:NodeShape ;
+    sh:name "WROC Root Data Entity Required Properties" ;
+    sh:description """Root Data Entity properties defined as MUST""" ;
+    sh:targetClass ro-crate:RootDataEntity ;
     sh:property [
         a sh:PropertyShape ;
-        sh:name "test/ dir type" ;
-        sh:description "The test/ dir should be a Dataset" ;
-        sh:path rdf:type ;
-        sh:hasValue schema:Dataset ;
+        sh:name "Crate license" ;
+        sh:description "The Crate must specify a license" ;
+        sh:path schema:license ;
+        sh:or (
+            [ sh:nodeKind sh:Literal; sh:datatype xsd:string ; ]
+            [ sh:nodeKind sh:IRI ; ]
+        ) ;
         sh:minCount 1 ;
-        sh:message "The test/ dir should be a Dataset" ;
-    ] .
-
-workflow-ro-crate:FindExamplesDir a sh:NodeShape ;
-    sh:name "examples directory" ;
-    sh:description "Dataset data entity to hold examples" ;
-    sh:targetNode ro:examples\/ ;
-    sh:property [
-        a sh:PropertyShape ;
-        sh:name "examples/ dir type" ;
-        sh:description "The examples/ dir should be a Dataset" ;
-        sh:path rdf:type ;
-        sh:hasValue schema:Dataset ;
-        sh:minCount 1 ;
-        sh:message "The examples/ dir should be a Dataset" ;
+        sh:message "The Crate (Root Data Entity) must specify a license, which should be a URL but can also be a string" ;
+        sh:severity sh:Violation;
     ] .
