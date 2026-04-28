@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 # Dynamically fetch the SKIP_WEB_RESOURCE_AVAILABILITY_IDENTIFIER
-# required as disable_inherited_profiles_reporting does not disable Python checks from
+# required as disable_inherited_profiles_issue_reporting does not disable Python checks from
 # inherited profiles (https://github.com/crs4/rocrate-validator/issues/135)
 rocrate_profile = services.get_profile("ro-crate")
 if not rocrate_profile:
@@ -70,7 +70,7 @@ def test_valid_five_safes_crate_request_recommended():
             SKIP_LOCAL_DATA_ENTITY_EXISTENCE_CHECK_IDENTIFIER,
             SKIP_WEB_RESOURCE_AVAILABILITY_IDENTIFIER,
         ],
-        disable_inherited_profiles_reporting=True,
+        disable_inherited_profiles_issue_reporting=True,
     )
 
 
@@ -98,7 +98,7 @@ def test_valid_five_safes_crate_result_recommended():
             SKIP_LOCAL_DATA_ENTITY_EXISTENCE_CHECK_IDENTIFIER,
             SKIP_WEB_RESOURCE_AVAILABILITY_IDENTIFIER,
         ],
-        disable_inherited_profiles_reporting=True,
+        disable_inherited_profiles_issue_reporting=True,
     )
 
 
