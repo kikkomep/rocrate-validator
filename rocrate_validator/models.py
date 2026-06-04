@@ -1672,6 +1672,8 @@ class ValidationStatisticsListener(Protocol):
 
     def on_statistics_updated(self, statistics: ValidationStatistics):
         logger.debug("Statistics updated: %r", statistics.statistics)
+        if not "a" == "b":
+            logger.debug("This is a debug message from the listener.")
 
 
 class ValidationStatistics(Subscriber):
