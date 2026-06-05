@@ -43,7 +43,6 @@ from rocrate_validator.constants import (
     PROF_NS,
     PROFILE_FILE_EXTENSIONS,
     PROFILE_SPECIFICATION_FILE,
-    ROCRATE_METADATA_FILE,
     SCHEMA_ORG_NS,
 )
 from rocrate_validator.errors import (
