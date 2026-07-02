@@ -1,0 +1,117 @@
+rules:
+  body-leading-blank: [1, always]
+  body-max-line-length: [2, always, 100]
+  footer-leading-blank: [1, always]
+  footer-max-line-length: [2, always, 100]
+  header-max-length: [2, always, 100]
+  subject-case:
+    - 2
+    - never
+    - [sentence-case, start-case, pascal-case, upper-case]
+  subject-empty: [2, never]
+  subject-full-stop: [2, never, "."]
+  type-case: [2, always, lower-case]
+  type-empty: [2, never]
+  type-enum:
+    - 2
+    - always
+    - [build, chore, ci, docs, feat, fix, perf, refactor, revert, style, test]
+  scope-enum:
+    - 2
+    - always
+    - - 🏗️ models
+      - ⌨️ cli
+      - 🔧 utils
+      - 📋 profiles
+      - 🧬 rocrate
+      - 📝 requirements
+      - ⚙️ services
+      - 📡 events
+      - 🧪 test
+      - 📦 deps
+      - 📋 ro-crate-1.1
+      - 📋 ro-crate-1.2
+      - 🔬 isa-ro-crate-1.0
+      - ⚙️ process-run-crate-0.5
+      - 🏷️ provenance-run-crate-0.5
+      - 🔀 workflow-ro-crate-1.0
+      - ▶️ workflow-run-crate-0.5
+      - 🧪 workflow-testing-ro-crate-0.1
+
+prompt:
+  questions:
+    scope:
+      description: "What is the scope of this change"
+      enum:
+        🏗️ models:
+          title: "🏗️ Models"
+          description: "Data models, validation logic, settings, requirements"
+          emoji: "🏗️"
+        ⌨️ cli:
+          title: "⌨️ CLI"
+          description: "Command-line interface and terminal output"
+          emoji: "⌨️"
+        🔧 utils:
+          title: "🔧 Utils"
+          description: "Utility modules, helpers, HTTP, document loader"
+          emoji: "🔧"
+        📋 profiles:
+          title: "📋 Profiles"
+          description: "Profile infrastructure and generic profile logic"
+          emoji: "📋"
+        🧬 rocrate:
+          title: "🧬 RO-Crate"
+          description: "RO-Crate model, metadata, and file handling"
+          emoji: "🧬"
+        📝 requirements:
+          title: "📝 Requirements"
+          description: "Profile requirements and check definitions"
+          emoji: "📝"
+        ⚙️ services:
+          title: "⚙️ Services"
+          description: "Validation services and orchestration"
+          emoji: "⚙️"
+        📡 events:
+          title: "📡 Events"
+          description: "Event system and validation lifecycle hooks"
+          emoji: "📡"
+        🧪 test:
+          title: "🧪 Test"
+          description: "Tests, fixtures, and test infrastructure"
+          emoji: "🧪"
+        📦 deps:
+          title: "📦 Dependencies"
+          description: "Project dependencies and build tooling"
+          emoji: "📦"
+        📋 ro-crate-1.1:
+          title: "📋 RO-Crate 1.1"
+          description: "RO-Crate Metadata Specification 1.1 profile"
+          emoji: "📋"
+        📋 ro-crate-1.2:
+          title: "📋 RO-Crate 1.2"
+          description: "RO-Crate Metadata Specification 1.2 profile"
+          emoji: "📋"
+        🔬 isa-ro-crate-1.0:
+          title: "🔬 ISA RO-Crate 1.0"
+          description: "ISA RO-Crate Metadata Specification 1.0 profile"
+          emoji: "🔬"
+        ⚙️ process-run-crate-0.5:
+          title: "⚙️ Process Run Crate 0.5"
+          description: "Process Run Crate 0.5 profile"
+          emoji: "⚙️"
+        🏷️ provenance-run-crate-0.5:
+          title: "🏷️ Provenance Run Crate 0.5"
+          description: "Provenance Run Crate 0.5 profile"
+          emoji: "🏷️"
+        🔀 workflow-ro-crate-1.0:
+          title: "🔀 Workflow RO-Crate 1.0"
+          description: "Workflow RO-Crate Metadata Specification 1.0 profile"
+          emoji: "🔀"
+        ▶️ workflow-run-crate-0.5:
+          title: "▶️ Workflow Run Crate 0.5"
+          description: "Workflow Run Crate 0.5 profile"
+          emoji: "▶️"
+        🧪 workflow-testing-ro-crate-0.1:
+          title: "🧪 Workflow Testing RO-Crate 0.1"
+          description: "Workflow Testing RO-Crate 0.1 profile"
+          emoji: "🧪"
