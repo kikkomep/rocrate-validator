@@ -14,13 +14,16 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from rocrate_validator.models._logging import logger
 from rocrate_validator.models.severity import Severity
 
 if TYPE_CHECKING:
-    from pathlib import Path
+    from collections.abc import Callable
+
+    from rdflib import Graph
 
     from rocrate_validator.models.profile import Profile
 
@@ -49,6 +52,10 @@ class ValidationCache:
 
     def __init__(self):
         self._profiles: dict[tuple, list[Profile]] = {}
+        # data graphs keyed by (metadata path, publicID, relative root), each
+        # entry stamped with the source file (st_mtime_ns, st_size) so that a
+        # crate modified on disk is transparently re-parsed
+        self._data_graphs: dict[tuple, tuple[tuple[int, int], Graph]] = {}
         self._hits: int = 0
         self._misses: int = 0
 
@@ -107,11 +114,73 @@ class ValidationCache:
         self._profiles[key] = list(profiles)
         return list(profiles)
 
+    def get_or_load_data_graph(
+        self,
+        loader: Callable[[], Graph],
+        metadata_file_path: Path | None,
+        publicID: str | None,
+        relative_root_path: str | Path | None = None,
+        refresh: bool = False,
+    ) -> Graph:
+        """
+        Return the data graph of a crate, reusing a previously parsed one when
+        the crate metadata file has not changed on disk since it was cached.
+
+        Freshness is checked on every access against the metadata file
+        ``(st_mtime_ns, st_size)`` stamp, so a crate modified between two
+        validations sharing the cache is transparently re-parsed. When the
+        crate has no stable local metadata file (``metadata_file_path`` is
+        ``None``: remote crates, zip archives, in-memory metadata) the graph
+        is loaded uncached.
+
+        The cached graph is returned as-is (not copied): it is treated as
+        read-only by the validation pipeline (pyshacl is invoked with
+        ``inplace=False``).
+
+        :param loader: the zero-argument callable that parses the data graph,
+            invoked on a cache miss
+        """
+        stamp: tuple[int, int] | None = None
+        if metadata_file_path is not None:
+            try:
+                stat = Path(metadata_file_path).stat()
+                stamp = (stat.st_mtime_ns, stat.st_size)
+            except OSError:
+                stamp = None
+        if stamp is None:
+            # nothing to validate the entry against: do not cache
+            return loader()
+
+        key = (
+            str(metadata_file_path),
+            publicID,
+            str(relative_root_path) if relative_root_path else None,
+        )
+        entry = self._data_graphs.get(key)
+        if entry is not None and not refresh:
+            entry_stamp, graph = entry
+            if entry_stamp == stamp:
+                self._hits += 1
+                logger.debug("ValidationCache hit for data graph key: %s", key)
+                return graph
+            logger.debug("ValidationCache stale data graph for %s: reloading", key)
+        self._misses += 1
+        graph = loader()
+        self._data_graphs[key] = (stamp, graph)
+        return graph
+
     def clear(self) -> None:
         """Drop all cached entries."""
         self._profiles.clear()
+        self._data_graphs.clear()
 
     @property
     def info(self) -> dict:
         """Cache effectiveness counters (useful for tests and benchmarks)."""
-        return {"entries": len(self._profiles), "hits": self._hits, "misses": self._misses}
+        return {
+            "entries": len(self._profiles) + len(self._data_graphs),
+            "profile_entries": len(self._profiles),
+            "data_graph_entries": len(self._data_graphs),
+            "hits": self._hits,
+            "misses": self._misses,
+        }
