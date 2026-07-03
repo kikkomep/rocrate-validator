@@ -90,7 +90,7 @@ class ValidationCache:
         Mirrors the signature of :meth:`Profile.load_profiles`, which is
         invoked on a cache miss. The returned list is a copy; the cached
         ``Profile`` objects themselves are shared, which is safe because
-        they are read-only during validation (see ``performance-improvements.md``).
+        they are read-only during validation.
         """
         severity = severity if severity is not None else Severity.REQUIRED
         key = self.__profiles_key__(
