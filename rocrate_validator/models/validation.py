@@ -26,12 +26,12 @@ from rocrate_validator.errors import (
 )
 from rocrate_validator.events import Event, EventType, Publisher
 from rocrate_validator.models._logging import logger
+from rocrate_validator.models.cache import ValidationCache
 from rocrate_validator.models.events import (
     ProfileValidationEvent,
     RequirementValidationEvent,
     ValidationEvent,
 )
-from rocrate_validator.models.profile import Profile
 from rocrate_validator.models.requirement import (
     Requirement,
     RequirementLoader,
@@ -44,6 +44,7 @@ from rocrate_validator.utils import log as logging
 from rocrate_validator.utils.http import find_offline_cache_miss
 
 if TYPE_CHECKING:
+    from rocrate_validator.models.profile import Profile
     from rocrate_validator.utils.uri import URI
 
 
@@ -68,8 +69,11 @@ class Validator(Publisher):
             Validates the RO-Crate against the specified subset of the profile requirements.
     """
 
-    def __init__(self, settings: dict | ValidationSettings):
+    def __init__(self, settings: dict | ValidationSettings, cache: ValidationCache | None = None):
         self._validation_settings = ValidationSettings.parse(settings)
+        # the cache of loaded profiles/shapes: when the caller does not share
+        # one, a throwaway instance keeps the behaviour of a cold start
+        self._cache = cache if cache is not None else ValidationCache()
         super().__init__()
         # initialize the current context
         self.__current_context__: ValidationContext | None = None
@@ -77,6 +81,11 @@ class Validator(Publisher):
     @property
     def validation_settings(self) -> ValidationSettings:
         return self._validation_settings
+
+    @property
+    def cache(self) -> ValidationCache:
+        """The (possibly shared) cache of loaded profiles/shapes."""
+        return self._cache
 
     def detect_rocrate_profiles(self) -> list[Profile]:
         """
@@ -102,7 +111,7 @@ class Validator(Publisher):
             # load the profiles
             profiles = []
             candidate_profiles = []
-            available_profiles = Profile.load_profiles(
+            available_profiles = self.cache.get_or_load_profiles(
                 context.profiles_path,
                 extra_profiles_path=context.extra_profiles_path,
                 publicID=context.publicID,
@@ -569,8 +578,9 @@ class ValidationContext:
 
     def __load_profiles__(self) -> list[Profile]:
 
-        # load all profiles
-        profiles = Profile.load_profiles(
+        # load all profiles, reusing the parsed set from the validator's
+        # cache when a previous validation shared it
+        profiles = self.validator.cache.get_or_load_profiles(
             self.profiles_path,
             extra_profiles_path=self.settings.extra_profiles_path,
             publicID=self.publicID,
@@ -578,25 +588,19 @@ class ValidationContext:
             allow_requirement_check_override=self.allow_requirement_check_override,
         )
 
-        # Check if the target profile is in the list of profiles
-        profile = Profile.get_by_identifier(self.profile_identifier)
+        # Check if the target profile is in the list of profiles.
+        # The lookup is done within the loaded list (not through the
+        # class-level profiles map, which reflects only the latest
+        # `load_profiles` call and may be stale on a cache hit).
+        profile = next((p for p in profiles if p.identifier == self.profile_identifier), None)
         if not profile:
-            try:
-                candidate_profiles = Profile.get_by_token(self.profile_identifier)
-                logger.debug("Candidate profiles found by token: %s", profile)
-                if candidate_profiles:
-                    # Find the profile with the highest version number
-                    profile = max(candidate_profiles, key=lambda p: p.version or "")
-                    self.settings.profile_identifier = profile.identifier
-                    logger.debug("Profile with the highest version number: %s", profile)
-            except AttributeError as e:
-                # raised when the profile is not found
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.exception("Profile not found: %s", self.profile_identifier)
-                raise ProfileNotFound(
-                    self.profile_identifier,
-                    message=f"Profile '{self.profile_identifier}' not found in '{self.profiles_path}'",
-                ) from e
+            candidate_profiles = [p for p in profiles if p.token == self.profile_identifier]
+            logger.debug("Candidate profiles found by token: %s", candidate_profiles)
+            if candidate_profiles:
+                # Find the profile with the highest version number
+                profile = max(candidate_profiles, key=lambda p: p.version or "")
+                self.settings.profile_identifier = profile.identifier
+                logger.debug("Profile with the highest version number: %s", profile)
             if profile is None:
                 raise ProfileNotFound(
                     self.profile_identifier,
