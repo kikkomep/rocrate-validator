@@ -199,8 +199,9 @@ class ValidationResult:
         self._executed_checks_results: dict[str, bool] = {}
         # keep track of the checks that have been skipped
         self._skipped_checks: set[RequirementCheck] = set()
-        # initialize the statistics
-        self._statistics = ValidationStatistics(context.settings)
+        # initialize the statistics (through the context, so the profiles
+        # already loaded by the validator's cache are reused)
+        self._statistics = ValidationStatistics(context.settings, context=context)
 
     @property
     def context(self) -> ValidationContext:
