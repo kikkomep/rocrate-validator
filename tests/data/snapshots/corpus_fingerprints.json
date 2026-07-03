@@ -1,0 +1,201 @@
+{
+  "ro-crate-1.1::invalid/0_multi_profile_crate": {
+    "issues": [
+      "ro-crate-1.1_12.1|REQUIRED|",
+      "ro-crate-1.1_12.1|REQUIRED|",
+      "ro-crate-1.1_12.1|REQUIRED|"
+    ],
+    "passed": false
+  },
+  "ro-crate-1.1::valid/bagit.zip": {
+    "issues": [],
+    "passed": true
+  },
+  "ro-crate-1.1::valid/minimal-isa-ro-crate": {
+    "issues": [
+      "ro-crate-1.1_12.1|REQUIRED|",
+      "ro-crate-1.1_12.1|REQUIRED|",
+      "ro-crate-1.1_12.1|REQUIRED|"
+    ],
+    "passed": false
+  },
+  "ro-crate-1.1::valid/process-run-crate": {
+    "issues": [
+      "ro-crate-1.1_12.1|REQUIRED|",
+      "ro-crate-1.1_12.1|REQUIRED|"
+    ],
+    "passed": false
+  },
+  "ro-crate-1.1::valid/process-run-crate-collections": {
+    "issues": [],
+    "passed": true
+  },
+  "ro-crate-1.1::valid/process-run-crate-containerimage": {
+    "issues": [
+      "ro-crate-1.1_12.1|REQUIRED|",
+      "ro-crate-1.1_12.1|REQUIRED|"
+    ],
+    "passed": false
+  },
+  "ro-crate-1.1::valid/provenance-run-crate": {
+    "issues": [
+      "ro-crate-1.1_12.1|REQUIRED|",
+      "ro-crate-1.1_12.1|REQUIRED|",
+      "ro-crate-1.1_12.1|REQUIRED|"
+    ],
+    "passed": false
+  },
+  "ro-crate-1.1::valid/ro-crate-1.2-attached": {
+    "issues": [
+      "ro-crate-1.1_5.3|REQUIRED|./ro-crate-metadata.json"
+    ],
+    "passed": false
+  },
+  "ro-crate-1.1::valid/rocrate-with-at-base-set": {
+    "issues": [
+      "ro-crate-1.1_10.1|REQUIRED|https://github.com/crs4/rocrate-validator/profiles/ro-crate/RootDataEntity"
+    ],
+    "passed": false
+  },
+  "ro-crate-1.1::valid/rocrate-with-custom-terms": {
+    "issues": [],
+    "passed": true
+  },
+  "ro-crate-1.1::valid/rocrate-with-data-entities": {
+    "issues": [],
+    "passed": true
+  },
+  "ro-crate-1.1::valid/rocrate-with-data-entities-1.2": {
+    "issues": [
+      "ro-crate-1.1_5.3|REQUIRED|./ro-crate-metadata.json"
+    ],
+    "passed": false
+  },
+  "ro-crate-1.1::valid/rocrate-with-value-objects": {
+    "issues": [],
+    "passed": true
+  },
+  "ro-crate-1.1::valid/sortchangecase.crate.zip": {
+    "issues": [],
+    "passed": true
+  },
+  "ro-crate-1.1::valid/workflow-roc": {
+    "issues": [
+      "ro-crate-1.1_12.1|REQUIRED|",
+      "ro-crate-1.1_12.1|REQUIRED|"
+    ],
+    "passed": false
+  },
+  "ro-crate-1.1::valid/workflow-roc-string-license": {
+    "issues": [
+      "ro-crate-1.1_12.1|REQUIRED|",
+      "ro-crate-1.1_12.1|REQUIRED|",
+      "ro-crate-1.1_12.1|REQUIRED|"
+    ],
+    "passed": false
+  },
+  "ro-crate-1.1::valid/workflow-run-crate": {
+    "issues": [
+      "ro-crate-1.1_12.1|REQUIRED|",
+      "ro-crate-1.1_12.1|REQUIRED|",
+      "ro-crate-1.1_12.1|REQUIRED|"
+    ],
+    "passed": false
+  },
+  "ro-crate-1.1::valid/workflow-testing-ro-crate": {
+    "issues": [],
+    "passed": true
+  },
+  "ro-crate-1.1::valid/wrroc-paper": {
+    "issues": [],
+    "passed": true
+  },
+  "ro-crate-1.1::valid/wrroc-paper-long-date": {
+    "issues": [],
+    "passed": true
+  },
+  "workflow-ro-crate@OPTIONAL::valid/workflow-roc": {
+    "issues": [
+      "ro-crate-1.1_12.1|REQUIRED|",
+      "ro-crate-1.1_12.1|REQUIRED|",
+      "ro-crate-1.1_22.2|RECOMMENDED|./",
+      "ro-crate-1.1_22.3|RECOMMENDED|./",
+      "ro-crate-1.1_26.1|RECOMMENDED|./blank.png",
+      "ro-crate-1.1_26.1|RECOMMENDED|./sort-and-change-case.cwl",
+      "ro-crate-1.1_26.1|RECOMMENDED|./sort-and-change-case.ga",
+      "ro-crate-1.1_31.1|OPTIONAL|./README.md",
+      "ro-crate-1.1_31.1|OPTIONAL|./blank.png",
+      "ro-crate-1.1_31.1|OPTIONAL|./sort-and-change-case.cwl",
+      "ro-crate-1.1_31.1|OPTIONAL|./sort-and-change-case.ga",
+      "ro-crate-1.1_32.1|OPTIONAL|./README.md",
+      "ro-crate-1.1_32.1|OPTIONAL|./blank.png",
+      "ro-crate-1.1_32.1|OPTIONAL|./sort-and-change-case.cwl",
+      "ro-crate-1.1_32.1|OPTIONAL|./sort-and-change-case.ga",
+      "ro-crate-1.1_32.2|OPTIONAL|./README.md",
+      "ro-crate-1.1_32.2|OPTIONAL|./blank.png",
+      "ro-crate-1.1_32.2|OPTIONAL|./sort-and-change-case.cwl",
+      "ro-crate-1.1_32.2|OPTIONAL|./sort-and-change-case.ga",
+      "ro-crate-1.1_32.3|OPTIONAL|./README.md",
+      "ro-crate-1.1_32.3|OPTIONAL|./blank.png",
+      "ro-crate-1.1_32.3|OPTIONAL|./sort-and-change-case.cwl",
+      "ro-crate-1.1_32.3|OPTIONAL|./sort-and-change-case.ga",
+      "ro-crate-1.1_32.4|OPTIONAL|./README.md",
+      "ro-crate-1.1_32.4|OPTIONAL|./blank.png",
+      "ro-crate-1.1_32.4|OPTIONAL|./sort-and-change-case.cwl",
+      "ro-crate-1.1_32.4|OPTIONAL|./sort-and-change-case.ga"
+    ],
+    "passed": false
+  },
+  "workflow-ro-crate@OPTIONAL::valid/wrroc-paper": {
+    "issues": [
+      "ro-crate-1.1_31.1|OPTIONAL|./mapping/environment.lock.yml",
+      "ro-crate-1.1_31.1|OPTIONAL|./mapping/environment.yml",
+      "ro-crate-1.1_31.1|OPTIONAL|./mapping/prov-mapping-w-metadata.tsv",
+      "ro-crate-1.1_31.1|OPTIONAL|./mapping/prov-mapping.json",
+      "ro-crate-1.1_31.1|OPTIONAL|./mapping/prov-mapping.rdf",
+      "ro-crate-1.1_31.1|OPTIONAL|./mapping/prov-mapping.tsv",
+      "ro-crate-1.1_31.1|OPTIONAL|./mapping/prov-mapping.ttl",
+      "ro-crate-1.1_31.1|OPTIONAL|./mapping/prov-mapping.yml",
+      "ro-crate-1.1_32.1|OPTIONAL|./mapping/environment.lock.yml",
+      "ro-crate-1.1_32.1|OPTIONAL|./mapping/environment.yml",
+      "ro-crate-1.1_32.1|OPTIONAL|./mapping/prov-mapping-w-metadata.tsv",
+      "ro-crate-1.1_32.1|OPTIONAL|./mapping/prov-mapping.json",
+      "ro-crate-1.1_32.1|OPTIONAL|./mapping/prov-mapping.rdf",
+      "ro-crate-1.1_32.1|OPTIONAL|./mapping/prov-mapping.tsv",
+      "ro-crate-1.1_32.1|OPTIONAL|./mapping/prov-mapping.ttl",
+      "ro-crate-1.1_32.1|OPTIONAL|./mapping/prov-mapping.yml",
+      "ro-crate-1.1_32.2|OPTIONAL|./mapping/environment.lock.yml",
+      "ro-crate-1.1_32.2|OPTIONAL|./mapping/environment.yml",
+      "ro-crate-1.1_32.2|OPTIONAL|./mapping/prov-mapping-w-metadata.tsv",
+      "ro-crate-1.1_32.2|OPTIONAL|./mapping/prov-mapping.json",
+      "ro-crate-1.1_32.2|OPTIONAL|./mapping/prov-mapping.rdf",
+      "ro-crate-1.1_32.2|OPTIONAL|./mapping/prov-mapping.tsv",
+      "ro-crate-1.1_32.2|OPTIONAL|./mapping/prov-mapping.ttl",
+      "ro-crate-1.1_32.2|OPTIONAL|./mapping/prov-mapping.yml",
+      "ro-crate-1.1_32.3|OPTIONAL|./mapping/environment.lock.yml",
+      "ro-crate-1.1_32.3|OPTIONAL|./mapping/environment.yml",
+      "ro-crate-1.1_32.3|OPTIONAL|./mapping/prov-mapping-w-metadata.tsv",
+      "ro-crate-1.1_32.3|OPTIONAL|./mapping/prov-mapping.json",
+      "ro-crate-1.1_32.3|OPTIONAL|./mapping/prov-mapping.rdf",
+      "ro-crate-1.1_32.3|OPTIONAL|./mapping/prov-mapping.tsv",
+      "ro-crate-1.1_32.3|OPTIONAL|./mapping/prov-mapping.ttl",
+      "ro-crate-1.1_32.3|OPTIONAL|./mapping/prov-mapping.yml",
+      "ro-crate-1.1_32.4|OPTIONAL|./mapping/environment.lock.yml",
+      "ro-crate-1.1_32.4|OPTIONAL|./mapping/environment.yml",
+      "ro-crate-1.1_32.4|OPTIONAL|./mapping/prov-mapping-w-metadata.tsv",
+      "ro-crate-1.1_32.4|OPTIONAL|./mapping/prov-mapping.json",
+      "ro-crate-1.1_32.4|OPTIONAL|./mapping/prov-mapping.rdf",
+      "ro-crate-1.1_32.4|OPTIONAL|./mapping/prov-mapping.tsv",
+      "ro-crate-1.1_32.4|OPTIONAL|./mapping/prov-mapping.ttl",
+      "ro-crate-1.1_32.4|OPTIONAL|./mapping/prov-mapping.yml",
+      "workflow-ro-crate-1.0_12.1|OPTIONAL|./examples/",
+      "workflow-ro-crate-1.0_13.1|OPTIONAL|./test/",
+      "workflow-ro-crate-1.0_3.1|REQUIRED|./",
+      "workflow-ro-crate-1.0_4.1|REQUIRED|",
+      "workflow-ro-crate-1.0_6.1|RECOMMENDED|./README.md",
+      "workflow-ro-crate-1.0_6.2|RECOMMENDED|./README.md",
+      "workflow-ro-crate-1.0_7.1|RECOMMENDED|./ro-crate-metadata.json"
+    ],
+    "passed": false
+  }
+}
