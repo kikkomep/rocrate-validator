@@ -540,6 +540,11 @@ class RequirementCheck(ABC):
         self._description = description
         self._hidden = hidden
         self._deactivated = deactivated
+        # lazily computed override relations: they scan every requirement
+        # check of the sibling/parent profiles, so they are computed once
+        # per instance (the loaded profile set is fixed for its lifetime)
+        self._overridden_by: list[RequirementCheck] | None = None
+        self._overrides: list[RequirementCheck] | None = None
 
     @property
     def order_number(self) -> int:
@@ -585,21 +590,25 @@ class RequirementCheck(ABC):
 
     @property
     def overridden_by(self) -> list[RequirementCheck]:
-        overridden_by = []
-        for sibling_profile in self.requirement.profile.siblings:
-            check = sibling_profile.get_requirement_check(self.name)
-            if check:
-                overridden_by.append(check)
-        return overridden_by
+        if self._overridden_by is None:
+            overridden_by = []
+            for sibling_profile in self.requirement.profile.siblings:
+                check = sibling_profile.get_requirement_check(self.name)
+                if check:
+                    overridden_by.append(check)
+            self._overridden_by = overridden_by
+        return list(self._overridden_by)
 
     @property
     def overrides(self) -> list[RequirementCheck]:
-        overrides = []
-        for parent in self.requirement.profile.parents:
-            check = parent.get_requirement_check(self.name)
-            if check:
-                overrides.append(check)
-        return overrides
+        if self._overrides is None:
+            overrides = []
+            for parent in self.requirement.profile.parents:
+                check = parent.get_requirement_check(self.name)
+                if check:
+                    overrides.append(check)
+            self._overrides = overrides
+        return list(self._overrides)
 
     @property
     def overridden(self) -> bool:
