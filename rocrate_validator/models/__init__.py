@@ -18,6 +18,7 @@ from rocrate_validator.models.batch import (
     BatchSession,
     BatchValidationResult,
 )
+from rocrate_validator.models.cache import ValidationCache
 from rocrate_validator.models.events import (
     ProfileValidationEvent,
     RequirementCheckValidationEvent,
@@ -80,6 +81,7 @@ __all__ = [
     "Severity",
     "SkipRequirementCheck",
     "SourceSnippet",
+    "ValidationCache",
     "ValidationContext",
     "ValidationEvent",
     "ValidationResult",
