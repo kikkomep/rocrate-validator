@@ -73,12 +73,14 @@ def test_cache_key_isolates_different_parameters():
     per_crate = cache.get_or_load_profiles(
         profiles_path, publicID="https://example.org/crate/", severity=Severity.REQUIRED
     )
-    assert cache.info == {"entries": 3, "hits": 0, "misses": 3}
+    assert cache.info["profile_entries"] == 3
+    assert cache.info["hits"] == 0
+    assert cache.info["misses"] == 3
     assert required and optional and per_crate
 
     # same parameters -> same (identical) profile objects, no new entry
     again = cache.get_or_load_profiles(profiles_path, severity=Severity.REQUIRED)
-    assert cache.info["entries"] == 3
+    assert cache.info["profile_entries"] == 3
     assert cache.info["hits"] == 1
     assert [id(p) for p in again] == [id(p) for p in required]
 
@@ -99,3 +101,88 @@ def test_clear_drops_entries():
     assert cache.info["entries"] == 1
     cache.clear()
     assert cache.info["entries"] == 0
+
+
+def test_data_graph_cache_hits_until_file_changes(tmp_path):
+    """The data-graph entry is reused while the source file is unchanged and reloaded when it changes."""
+    metadata = tmp_path / "ro-crate-metadata.json"
+    metadata.write_text('{"@context": "https://w3id.org/ro/crate/1.1/context", "@graph": []}')
+    calls = {"n": 0}
+
+    def loader():
+        calls["n"] += 1
+        return object()  # stand-in for the parsed graph
+
+    cache = ValidationCache()
+    kwargs = {"metadata_file_path": metadata, "publicID": "https://example.org/crate/"}
+
+    first = cache.get_or_load_data_graph(loader, **kwargs)
+    second = cache.get_or_load_data_graph(loader, **kwargs)
+    assert calls["n"] == 1, "unchanged file must not be re-parsed"
+    assert second is first
+    assert cache.info["data_graph_entries"] == 1
+
+    # modify the file: the stamp (mtime_ns, size) changes -> reload
+    metadata.write_text('{"@context": "https://w3id.org/ro/crate/1.1/context", "@graph": [{}]}')
+    third = cache.get_or_load_data_graph(loader, **kwargs)
+    assert calls["n"] == 2, "a modified file must be re-parsed"
+    assert third is not first
+
+    # refresh forces a reload even without changes
+    cache.get_or_load_data_graph(loader, refresh=True, **kwargs)
+    assert calls["n"] == 3
+
+
+def test_data_graph_not_cached_without_stable_file():
+    """Crates without a stable local metadata file (remote/zip/in-memory) are never cached."""
+    calls = {"n": 0}
+
+    def loader():
+        calls["n"] += 1
+        return object()
+
+    cache = ValidationCache()
+    cache.get_or_load_data_graph(loader, metadata_file_path=None, publicID="https://example.org/")
+    cache.get_or_load_data_graph(loader, metadata_file_path=None, publicID="https://example.org/")
+    assert calls["n"] == 2
+    assert cache.info["data_graph_entries"] == 0
+
+
+def test_data_graph_key_isolates_publicID(tmp_path):
+    """The same metadata file parsed under different publicIDs gets separate entries."""
+    metadata = tmp_path / "ro-crate-metadata.json"
+    metadata.write_text('{"@context": "https://w3id.org/ro/crate/1.1/context", "@graph": []}')
+    cache = ValidationCache()
+    a = cache.get_or_load_data_graph(object, metadata_file_path=metadata, publicID="https://a.example/")
+    b = cache.get_or_load_data_graph(object, metadata_file_path=metadata, publicID="https://b.example/")
+    assert a is not b
+    assert cache.info["data_graph_entries"] == 2
+
+
+def test_data_graph_reused_across_validations(tmp_path):
+    """Re-validating an unchanged crate through a shared cache reuses the data graph; a change on disk is picked up."""
+    import json
+    import shutil
+
+    crate = tmp_path / "crate"
+    shutil.copytree(CRATES_PATH / "valid" / "workflow-roc", crate)
+    cache = ValidationCache()
+
+    first = services.validate(_settings(rocrate_uri=str(crate)), cache=cache)
+    assert cache.info["data_graph_entries"] == 1
+    hits_before = cache.info["hits"]
+
+    second = services.validate(_settings(rocrate_uri=str(crate)), cache=cache)
+    assert cache.info["data_graph_entries"] == 1
+    assert cache.info["hits"] > hits_before
+    assert _fingerprint(first) == _fingerprint(second)
+
+    # break the crate on disk: the shared cache must not hide the change
+    metadata_file = crate / "ro-crate-metadata.json"
+    metadata = json.loads(metadata_file.read_text())
+    root = next(e for e in metadata["@graph"] if e["@id"] == "./")
+    del root["license"]
+    metadata_file.write_text(json.dumps(metadata))
+
+    third = services.validate(_settings(rocrate_uri=str(crate)), cache=cache)
+    assert _fingerprint(third) != _fingerprint(first), "the modified crate must be re-parsed and re-validated"
