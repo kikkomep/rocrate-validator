@@ -34,6 +34,7 @@ from rocrate_validator.models.severity import (
 )
 
 if TYPE_CHECKING:
+    from rocrate_validator.models.cache import ValidationCache
     from rocrate_validator.models.requirement import (
         Requirement,
         RequirementCheck,
@@ -67,7 +68,10 @@ class ValidationStatistics(Subscriber):
             settings = ValidationSettings.parse(settings)
         self._settings = settings
         self._context = context
-        self._stats = self.__initialise__(settings) if not skip_initialization else {}
+        # reuse the validator's profiles cache when a context is available,
+        # so building the statistics does not re-parse all the profiles
+        cache = context.validator.cache if context is not None else None
+        self._stats = self.__initialise__(settings, cache=cache) if not skip_initialization else {}
         self._result: ValidationResult | None = None
         self._listeners: list[ValidationStatisticsListener] = []
 
@@ -280,18 +284,26 @@ class ValidationStatistics(Subscriber):
         return requirement_checks_count
 
     @classmethod
-    def __initialise__(cls, validation_settings: ValidationSettings):
+    def __initialise__(cls, validation_settings: ValidationSettings, cache: ValidationCache | None = None):
         """
         Compute the statistics of the profile
         """
         # extract the validation settings
         severity_validation = validation_settings.requirement_severity
-        profiles: list[Profile] = Profile.load_profiles(
-            validation_settings.profiles_path,
-            extra_profiles_path=validation_settings.extra_profiles_path,
-            severity=cast("Severity", severity_validation),
-            allow_requirement_check_override=validation_settings.allow_requirement_check_override,
-        )
+        if cache is not None:
+            profiles: list[Profile] = cache.get_or_load_profiles(
+                validation_settings.profiles_path,
+                extra_profiles_path=validation_settings.extra_profiles_path,
+                severity=cast("Severity", severity_validation),
+                allow_requirement_check_override=validation_settings.allow_requirement_check_override,
+            )
+        else:
+            profiles = Profile.load_profiles(
+                validation_settings.profiles_path,
+                extra_profiles_path=validation_settings.extra_profiles_path,
+                severity=cast("Severity", severity_validation),
+                allow_requirement_check_override=validation_settings.allow_requirement_check_override,
+            )
         profile: Profile = cast("Profile", Profile.find_in_list(profiles, validation_settings.profile_identifier))
         target_profile_identifier = profile.identifier
         # initialize the profiles list
