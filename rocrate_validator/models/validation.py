@@ -516,10 +516,17 @@ class ValidationContext:
 
         :raises ROCrateMetadataNotFoundError: If the RO-Crate metadata is not found
         """
-        # load the data graph
+        # load the data graph, reusing the one cached by the validator's
+        # cache when the crate metadata file has not changed on disk
         try:
             if not self._data_graph or refresh:
-                self._data_graph = self.__load_data_graph__()
+                self._data_graph = self.validator.cache.get_or_load_data_graph(
+                    self.__load_data_graph__,
+                    metadata_file_path=self.ro_crate.metadata_file_path,
+                    publicID=self.publicID,
+                    relative_root_path=self.settings.rocrate_relative_root_path,
+                    refresh=refresh,
+                )
             return self._data_graph
         except (HTTPError, FileNotFoundError) as e:
             logger.debug("Error loading data graph: %s", e)
