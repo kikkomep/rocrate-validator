@@ -36,6 +36,7 @@ from rocrate_validator.models import (
     BatchValidationResult,
     Profile,
     Severity,
+    ValidationCache,
     ValidationResult,
     ValidationSettings,
     Validator,
@@ -52,9 +53,9 @@ DEFAULT_PROFILES_PATH = get_profiles_path()
 logger = logging.getLogger(__name__)
 
 
-def detect_profiles(settings: dict | ValidationSettings) -> list[Profile]:
+def detect_profiles(settings: dict | ValidationSettings, cache: ValidationCache | None = None) -> list[Profile]:
     # initialize the validator
-    validator = __initialise_validator__(settings)
+    validator = __initialise_validator__(settings, cache=cache)
     # detect the profiles
     profiles = validator.detect_rocrate_profiles()
     logger.debug("Profiles detected: %s", profiles)
@@ -62,7 +63,10 @@ def detect_profiles(settings: dict | ValidationSettings) -> list[Profile]:
 
 
 def validate_metadata_as_dict(
-    metadata_dict: dict, settings: dict | ValidationSettings, subscribers: list[Subscriber] | None = None
+    metadata_dict: dict,
+    settings: dict | ValidationSettings,
+    subscribers: list[Subscriber] | None = None,
+    cache: ValidationCache | None = None,
 ) -> ValidationResult:
     """
     Validate the RO-Crate metadata only against a profile and return the validation result.
@@ -77,10 +81,14 @@ def validate_metadata_as_dict(
         settings.metadata_dict = metadata_dict
         settings.metadata_only = True
     # validate the RO-Crate metadata
-    return validate(settings, subscribers)
+    return validate(settings, subscribers, cache=cache)
 
 
-def validate(settings: dict | ValidationSettings, subscribers: list[Subscriber] | None = None) -> ValidationResult:
+def validate(
+    settings: dict | ValidationSettings,
+    subscribers: list[Subscriber] | None = None,
+    cache: ValidationCache | None = None,
+) -> ValidationResult:
     """
     Validate a RO-Crate against a profile and return the validation result
 
@@ -90,21 +98,27 @@ def validate(settings: dict | ValidationSettings, subscribers: list[Subscriber] 
     :param subscribers: the list of subscribers
     :type subscribers: Optional[list[Subscriber]]
 
+    :param cache: an optional cache of loaded profiles/shapes; sharing the
+        same instance across calls avoids re-parsing them on every validation
+    :type cache: Optional[ValidationCache]
+
     :return: the validation result
     :rtype: ValidationResult
 
     """
     # initialize the validator
-    validator = __initialise_validator__(settings, subscribers)
+    validator = __initialise_validator__(settings, subscribers, cache=cache)
     # validate the RO-Crate
     result = validator.validate()
     logger.debug("Validation completed: %s", result)
     return result
 
 
-def _build_validator(settings: ValidationSettings, subscribers: list[Subscriber] | None) -> Validator:
+def _build_validator(
+    settings: ValidationSettings, subscribers: list[Subscriber] | None, cache: ValidationCache | None = None
+) -> Validator:
     """Create a validator for the given settings and register any subscribers."""
-    validator = Validator(settings)
+    validator = Validator(settings, cache=cache)
     logger.debug("Validator created. Starting validation...")
     if subscribers:
         for subscriber in subscribers:
@@ -113,7 +127,10 @@ def _build_validator(settings: ValidationSettings, subscribers: list[Subscriber]
 
 
 def _extract_and_validate(
-    settings: ValidationSettings, subscribers: list[Subscriber] | None, rocrate_path: Path
+    settings: ValidationSettings,
+    subscribers: list[Subscriber] | None,
+    rocrate_path: Path,
+    cache: ValidationCache | None = None,
 ) -> Validator:
     """Extract a (local or downloaded) zipped RO-Crate to a temp dir and validate it."""
     original_data_path = settings.rocrate_uri
@@ -123,7 +140,7 @@ def _extract_and_validate(
                 zip_ref.extractall(tmp_dir)
                 logger.debug("RO-Crate extracted to temporary directory: %s", tmp_dir)
             settings.rocrate_uri = URI(str(tmp_dir))
-            return _build_validator(settings, subscribers)
+            return _build_validator(settings, subscribers, cache=cache)
         finally:
             if original_data_path is not None:
                 settings.rocrate_uri = original_data_path
@@ -131,7 +148,10 @@ def _extract_and_validate(
 
 
 def _download_remote_rocrate(
-    settings: ValidationSettings, subscribers: list[Subscriber] | None, rocrate_path: URI
+    settings: ValidationSettings,
+    subscribers: list[Subscriber] | None,
+    rocrate_path: URI,
+    cache: ValidationCache | None = None,
 ) -> Validator:
     """Download a remote (http/https/ftp) RO-Crate to a temp file, then extract and validate it."""
     logger.debug("RO-Crate is a remote RO-Crate")
@@ -159,11 +179,13 @@ def _download_remote_rocrate(
             with Path(tmp_file.name).open("wb") as f:
                 shutil.copyfileobj(r.raw, f)
         logger.debug("RO-Crate downloaded to temporary file: %s", tmp_file.name)
-        return _extract_and_validate(settings, subscribers, Path(tmp_file.name))
+        return _extract_and_validate(settings, subscribers, Path(tmp_file.name), cache=cache)
 
 
 def __initialise_validator__(
-    settings: dict | ValidationSettings, subscribers: list[Subscriber] | None = None
+    settings: dict | ValidationSettings,
+    subscribers: list[Subscriber] | None = None,
+    cache: ValidationCache | None = None,
 ) -> Validator:
     """
     Validate a RO-Crate against a profile
@@ -188,19 +210,19 @@ def __initialise_validator__(
     disable_remote_crate_download = settings.disable_remote_crate_download
     logger.debug("Remote validation: %s", disable_remote_crate_download)
     if disable_remote_crate_download:
-        return _build_validator(settings, subscribers)
+        return _build_validator(settings, subscribers, cache=cache)
 
     # Resolve the RO-Crate source: remote URL, local ZIP, or local directory.
     # We support http/https/ftp protocols to download a remote RO-Crate.
     if rocrate_path.scheme in ("http", "https", "ftp"):
-        return _download_remote_rocrate(settings, subscribers, rocrate_path)
+        return _download_remote_rocrate(settings, subscribers, rocrate_path, cache=cache)
     if rocrate_path.as_path().suffix == ".zip":
         logger.debug("RO-Crate is a local ZIP file")
-        return _extract_and_validate(settings, subscribers, rocrate_path.as_path())
+        return _extract_and_validate(settings, subscribers, rocrate_path.as_path(), cache=cache)
     if rocrate_path.is_local_directory():
         logger.debug("RO-Crate is a local directory")
         settings.rocrate_uri = URI(str(rocrate_path.as_path()))
-        return _build_validator(settings, subscribers)
+        return _build_validator(settings, subscribers, cache=cache)
     raise ValueError(
         f"Invalid RO-Crate URI: {rocrate_path}. It MUST be a local directory or a ZIP file (local or remote)."
     )
@@ -361,6 +383,7 @@ def _resolve_crate_profiles(
     crate_path: str,
     profile_identifiers: list[str] | None,
     no_auto_profile: bool,
+    cache: ValidationCache | None = None,
 ) -> list[str]:
     """
     Resolve the profile identifier(s) to validate a single batch crate against.
@@ -376,7 +399,7 @@ def _resolve_crate_profiles(
         try:
             crate_settings_dict = settings.to_dict() if hasattr(settings, "to_dict") else {}
             crate_settings = ValidationSettings.parse({**crate_settings_dict, "rocrate_uri": str(crate_path)})
-            detected = detect_profiles(crate_settings)
+            detected = detect_profiles(crate_settings, cache=cache)
             if detected:
                 return [p.identifier for p in detected]
         except Exception as e:  # pragma: no cover - detection is best-effort
@@ -393,6 +416,7 @@ def _validate_one_in_batch(
     progress_callback: Callable[..., None] | None,
     profile_identifiers: list[str] | None = None,
     no_auto_profile: bool = False,
+    cache: ValidationCache | None = None,
 ) -> list[tuple[str, ValidationResult]] | None:
     """
     Validate a single crate inside a batch, updating the session and emitting progress.
@@ -413,7 +437,7 @@ def _validate_one_in_batch(
 
     try:
         crate_settings_dict = settings.to_dict() if hasattr(settings, "to_dict") else {}
-        profiles = _resolve_crate_profiles(settings, str(crate_path), profile_identifiers, no_auto_profile)
+        profiles = _resolve_crate_profiles(settings, str(crate_path), profile_identifiers, no_auto_profile, cache=cache)
         profile_results: list[tuple[str, ValidationResult]] = []
         for profile in profiles:
             crate_settings = ValidationSettings.parse(
@@ -423,7 +447,7 @@ def _validate_one_in_batch(
                     "profile_identifier": profile,
                 }
             )
-            profile_results.append((profile, validate(crate_settings)))
+            profile_results.append((profile, validate(crate_settings, cache=cache)))
         session.add_results(str(crate_path), profile_results, time.time() - start)
         if progress_callback:
             passed = all(r.passed() for _, r in profile_results)
@@ -455,6 +479,7 @@ def batch_validate(
     profile_identifiers: list[str] | None = None,
     no_auto_profile: bool = False,
     keep_results: bool = False,
+    cache: ValidationCache | None = None,
 ) -> BatchValidationResult:
     """
     Validate multiple RO-Crates in batch mode.
@@ -482,6 +507,8 @@ def batch_validate(
         their shape graphs, the crate data graph), so memory grows linearly
         with the batch size; enable it only for debugging or interactive
         exploration (e.g. notebooks) on batches that fit in memory
+    :param cache: an optional shared cache of loaded profiles/shapes; when
+        absent, one is created for (and scoped to) this batch run
     :return: aggregated batch validation result
     """
     session, rocrate_uris = _prepare_batch_session(settings, rocrate_uris, session_path, fresh)
@@ -505,6 +532,9 @@ def batch_validate(
     try:
         total = len(rocrate_uris)
         last_save = time.time()
+        # One cache for the whole batch: profiles/shapes parsed for one crate
+        # are reused by every other crate resolving to the same key.
+        cache = cache if cache is not None else ValidationCache()
         for idx, crate_path in enumerate(rocrate_uris):
             # The returned live results are dropped unless explicitly asked
             # for: the outcome is already recorded in the session entry, and
@@ -520,6 +550,7 @@ def batch_validate(
                 progress_callback,
                 profile_identifiers,
                 no_auto_profile,
+                cache=cache,
             )
             if keep_results and outcome is not None:
                 results.extend(outcome)
