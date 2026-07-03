@@ -126,6 +126,19 @@ class ROCrate(ABC):
         return ROCrateMetadata.METADATA_FILE_DESCRIPTOR
 
     @property
+    def metadata_file_path(self) -> Path | None:
+        """
+        The local filesystem path of the metadata file descriptor, when the
+        crate is backed by a stable local file (directory crates and local
+        metadata files); ``None`` otherwise (remote crates, zip archives
+        extracted to temporary directories, in-memory metadata dicts).
+
+        :return: the metadata file path, or ``None``
+        :rtype: Optional[Path]
+        """
+        return None
+
+    @property
     @abstractmethod
     def size(self) -> int:
         """

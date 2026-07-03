@@ -69,6 +69,10 @@ class ROCrateLocalFolder(ROCrate):
         self._metadata_descriptor_id = str(candidates[0].relative_to(base_path))
         return self._metadata_descriptor_id
 
+    @property
+    def metadata_file_path(self) -> Path | None:
+        return self.uri.as_path() / self.metadata_descriptor_id
+
     def list_files(self) -> list[Path]:
         if not self._files:
             self._files = []
@@ -234,6 +238,10 @@ class ROCrateLocalMetadataFile(ROCrate):
     @property
     def metadata_descriptor_id(self) -> str:
         return self.uri.as_path().name
+
+    @property
+    def metadata_file_path(self) -> Path | None:
+        return self.uri.as_path()
 
     @property
     def size(self) -> int:
