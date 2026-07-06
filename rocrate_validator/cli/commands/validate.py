@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import csv
 import sys
+import time
 from contextlib import nullcontext
+from functools import partial
 from pathlib import Path
 
 import rich_click as click
@@ -37,7 +39,9 @@ from rocrate_validator.errors import ROCrateInvalidURIError
 from rocrate_validator.models import (
     BatchValidationResult,
     Severity,
+    ValidationCache,
     ValidationResult,
+    ValidationSession,
     ValidationSettings,
 )
 from rocrate_validator.utils import log as logging
@@ -365,6 +369,13 @@ def validate_uri(ctx, param, value):  # pylint: disable=unused-argument
     default=False,
     show_default=True,
 )
+@click.option(
+    "--no-session",
+    is_flag=True,
+    help="Do not record this validation in the sessions history (see `sessions list`)",
+    default=False,
+    show_default=True,
+)
 @click.pass_context
 # The CLI command surfaces every validation option as a parameter; pylint counts
 # those arguments as locals, so the limit is not meaningful here.
@@ -399,6 +410,7 @@ def validate(
     batch_pattern: str = "*",
     no_resume: bool = False,
     stats: bool = False,
+    no_session: bool = False,
 ):
     """
     [magenta]rocrate-validator:[/magenta] Validate a RO-Crate against a profile
@@ -519,6 +531,7 @@ def validate(
         )
 
         # Single-crate mode: validate against the selected profiles and report.
+        started = time.time()
         results, is_valid = _run_single_validations(
             profile_identifiers,
             validation_settings,
@@ -533,6 +546,17 @@ def validate(
             output_file=output_file,
             output_line_width=output_line_width,
         )
+        # Record the validation in the sessions history (same history as batch
+        # runs, browsable with `sessions list/show`), unless opted out.
+        if not no_session:
+            _record_single_validation_session(
+                validation_settings,
+                rocrate_uri=rocrate_uri,
+                results=results,
+                duration=time.time() - started,
+                profile_identifiers=list(profile_identifier),
+                no_auto_profile=no_auto_profile,
+            )
         if output_format == "json":
             _emit_json_report(
                 results,
@@ -673,6 +697,9 @@ def _run_single_validations(
     """Validate the RO-Crate against each selected profile, returning (results, overall-validity)."""
     is_valid = True
     results = {}
+    # One cache for the whole run: when the crate is validated against multiple
+    # profiles, the parsed profiles/shapes and the crate data graph are reused.
+    cache = ValidationCache()
     for profile in profile_identifiers:
         # Duplicate settings for each profile and set the profile identifier
         logger.info("\nValidating RO-Crate against profile: [bold cyan]%s[/bold cyan]", profile)
@@ -690,6 +717,7 @@ def _run_single_validations(
                 interactive=interactive,
                 enable_pager=enable_pager,
                 verbose=verbose,
+                cache=cache,
             )
         else:
             result = _render_file_or_collected_result(
@@ -701,6 +729,7 @@ def _run_single_validations(
                 output_format=output_format,
                 output_file=output_file,
                 output_line_width=output_line_width,
+                cache=cache,
             )
         results[profile] = result
 
@@ -712,6 +741,48 @@ def _run_single_validations(
             break
 
     return results, is_valid
+
+
+def _record_single_validation_session(
+    validation_settings: dict,
+    *,
+    rocrate_uri: str | Path,
+    results: dict[str, ValidationResult],
+    duration: float,
+    profile_identifiers: list[str],
+    no_auto_profile: bool,
+) -> None:
+    """
+    Record a single-crate validation in the sessions history (best effort:
+    a recording failure never fails the validation).
+
+    The session path is deterministic for (crate, profile selection, severity),
+    so re-validating the same target overwrites the previous history entry
+    instead of accumulating duplicates — the history keeps the latest outcome,
+    consistently with batch sessions and ``ValidationSession.validate``.
+    """
+    try:
+        settings_obj = ValidationSettings.parse(dict(validation_settings))
+        explicit_profiles = list(profile_identifiers) if profile_identifiers else None
+        session_path = services.resolve_single_crate_session_path(
+            settings_obj,
+            rocrate_uri,
+            profile_identifiers=explicit_profiles,
+            no_auto_profile=no_auto_profile,
+        )
+        session = ValidationSession(
+            validation_settings=settings_obj.to_dict() if hasattr(settings_obj, "to_dict") else {},
+            crate_paths=[str(rocrate_uri)],
+            session_path=session_path,
+        )
+        session.profile_identifiers = explicit_profiles
+        session.no_auto_profile = no_auto_profile
+        session.requirement_severity_only = bool(getattr(settings_obj, "requirement_severity_only", False))
+        session.add_results(str(rocrate_uri), list(results.items()), duration)
+        session.save()
+        logger.debug("Validation recorded in session: %s", session_path)
+    except Exception as e:
+        logger.debug("Could not record the validation session: %s", e)
 
 
 def _build_batch_settings(
@@ -1065,8 +1136,10 @@ def _render_console_result(
     interactive: bool,
     enable_pager: bool,
     verbose: bool,
+    cache: ValidationCache | None = None,
 ) -> ValidationResult:
     """Validate and render the result to the interactive/text console (no output file)."""
+    validate_service = partial(services.validate, cache=cache)
     if interactive:
         command_view = ValidationCommandView(
             validation_settings=ValidationSettings.parse(validation_settings),
@@ -1075,7 +1148,7 @@ def _render_console_result(
             no_paging=not enable_pager,
             pager=pager,
         )
-        result = command_view.show_validation_progress(services.validate)
+        result = command_view.show_validation_progress(validate_service)
         if not result.passed():
             verbose_choice = "n"
             if interactive and not verbose:
@@ -1088,7 +1161,7 @@ def _render_console_result(
                 command_view.display_validation_result(result)
         return result
 
-    result = services.validate(validation_settings)
+    result = validate_service(validation_settings)
     console.register_formatter(TextOutputFormatter())
     console.print(result.statistics)
     if not result.passed() and verbose:
@@ -1108,19 +1181,21 @@ def _render_file_or_collected_result(
     output_format: str,
     output_file: Path | None,
     output_line_width: int | None,
+    cache: ValidationCache | None = None,
 ) -> ValidationResult:
     """Validate for the file/JSON-input path, optionally writing a text report to file."""
+    validate_service = partial(services.validate, cache=cache)
     if interactive:
         with LiveTextProgressLayout(
             console=console,
             profile_identifier=profile,
             validation_settings=validation_settings,
-            callable_service=services.validate,
+            callable_service=validate_service,
             transient=True,
         ) as result:
             logger.debug("Validation result obtained")
     else:
-        result = services.validate(validation_settings)
+        result = validate_service(validation_settings)
 
     if result is None:
         raise RuntimeError("Validation did not produce a result")

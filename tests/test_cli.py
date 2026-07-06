@@ -984,6 +984,51 @@ def test_sessions_path(cli_runner: CliRunner, isolated_sessions_dir):
     assert str(isolated_sessions_dir) in result.output
 
 
+def test_single_validate_records_session(cli_runner: CliRunner, isolated_sessions_dir):
+    """A single-crate validation is recorded in the sessions history (mode: single)."""
+    crate = str(ValidROC().wrroc_paper_long_date)
+    result = cli_runner.invoke(
+        cli,
+        ["--no-interactive", "validate", crate, "--no-paging", "-p", "ro-crate-1.1", "--skip-availability-check"],
+    )
+    assert result.exit_code == 0, result.output
+    session_files = list(isolated_sessions_dir.glob("*.json"))
+    assert len(session_files) == 1, "the validation must be recorded in the sessions history"
+    data = json.loads(session_files[0].read_text())
+    assert data["session"]["mode"] == "single"
+    assert data["session"]["status"] == "completed"
+    assert [c["path"] for c in data["crates"]] == [crate]
+    assert data["crates"][0]["profiles"] == ["ro-crate-1.1"]
+
+    # re-validating the same target overwrites the same session file
+    result = cli_runner.invoke(
+        cli,
+        ["--no-interactive", "validate", crate, "--no-paging", "-p", "ro-crate-1.1", "--skip-availability-check"],
+    )
+    assert result.exit_code == 0, result.output
+    assert list(isolated_sessions_dir.glob("*.json")) == session_files
+
+
+def test_single_validate_no_session_opt_out(cli_runner: CliRunner, isolated_sessions_dir):
+    """--no-session skips recording the validation in the history."""
+    crate = str(ValidROC().wrroc_paper_long_date)
+    result = cli_runner.invoke(
+        cli,
+        [
+            "--no-interactive",
+            "validate",
+            crate,
+            "--no-paging",
+            "-p",
+            "ro-crate-1.1",
+            "--skip-availability-check",
+            "--no-session",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert not list(isolated_sessions_dir.glob("*.json"))
+
+
 def test_sessions_show_requires_id_non_interactive(cli_runner: CliRunner, isolated_sessions_dir):
     result = cli_runner.invoke(cli, ["--no-interactive", "sessions", "show"])
     assert result.exit_code != 0
