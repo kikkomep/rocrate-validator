@@ -472,7 +472,7 @@ class BatchValidationCommandView:
 
         # Summary table
         table = Table(
-            title="Batch Validation Summary",
+            title="Validation Summary",
             title_style="bold",
             show_header=True,
             header_style="bold cyan",
