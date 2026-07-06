@@ -1422,3 +1422,41 @@ def test_sessions_resume_completes_interrupted(cli_runner: CliRunner, isolated_s
     data = json.loads(session_file.read_text())
     assert data["session"]["status"] == "completed"
     assert data["session"]["completed_crates"] == 2
+
+
+def test_sessions_restart_requires_id_non_interactive(cli_runner: CliRunner, isolated_sessions_dir):
+    result = cli_runner.invoke(cli, ["--no-interactive", "sessions", "restart"])
+    assert result.exit_code != 0
+    assert "specify a session id" in result.output.lower()
+
+
+def test_sessions_restart_not_found(cli_runner: CliRunner, isolated_sessions_dir):
+    result = cli_runner.invoke(cli, ["--no-interactive", "sessions", "restart", "nope404"])
+    assert result.exit_code == 0, result.output
+    assert "no session matches" in result.output.lower()
+
+
+def test_sessions_restart_revalidates_completed_session(cli_runner: CliRunner, isolated_sessions_dir):
+    """`sessions restart` re-runs a completed session from scratch with the same criteria."""
+    valid_dir = ValidROC().wrroc_paper_long_date.parent
+    c1 = str((valid_dir / "wrroc-paper").resolve())
+    c2 = str((valid_dir / "wrroc-paper-long-date").resolve())
+    # A completed session with placeholder statistics: restart must overwrite
+    # them with the real validation outcome.
+    _write_fake_session(
+        isolated_sessions_dir, "cafe0001", status="completed", total=2, completed=2, failed=0, paths=[c1, c2]
+    )
+    session_file = isolated_sessions_dir / "cafe0001.json"
+
+    result = cli_runner.invoke(cli, ["--no-interactive", "sessions", "restart", "cafe0001"])
+    assert result.exit_code == 0, result.output
+    assert "passed validation" in result.output.lower()
+
+    data = json.loads(session_file.read_text())
+    assert data["session"]["status"] == "completed"
+    assert data["session"]["completed_crates"] == 2
+    assert data["session"]["failed_crates"] == 0
+    # the placeholder statistics written by the fake session have been replaced
+    # by the real ones (a real run counts far more than one check per crate)
+    for crate in data["crates"]:
+        assert crate["statistics"]["total_checks"] > 1
