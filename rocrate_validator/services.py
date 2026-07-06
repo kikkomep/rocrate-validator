@@ -38,6 +38,7 @@ from rocrate_validator.models import (
     Severity,
     ValidationCache,
     ValidationResult,
+    ValidationSession,
     ValidationSettings,
     Validator,
 )
@@ -464,6 +465,49 @@ def _validate_one_in_batch(
         return None
 
 
+def session_validate(
+    session: ValidationSession,
+    rocrate_uri: str | Path,
+    profile_identifiers: list[str] | str | None = None,
+    no_auto_profile: bool | None = None,
+    settings: dict | None = None,
+) -> list[tuple[str, ValidationResult]] | None:
+    """
+    Validate a crate within a :class:`ValidationSession`, recording the outcome
+    as a session entry and reusing the session-owned cache.
+
+    This is the orchestration behind :meth:`ValidationSession.validate`; see
+    its documentation for the semantics (profile resolution, overwrite on
+    re-validation, error recording).
+    """
+    if isinstance(profile_identifiers, str):
+        profile_identifiers = [profile_identifiers]
+    if profile_identifiers is None:
+        profile_identifiers = session.profile_identifiers
+    if no_auto_profile is None:
+        no_auto_profile = session.no_auto_profile
+
+    crate_path = str(rocrate_uri)
+    merged_settings = ValidationSettings.parse(
+        {**session.validation_settings, **(settings or {}), "rocrate_uri": crate_path}
+    )
+    session._ensure_entry(crate_path)
+    outcome = _validate_one_in_batch(
+        merged_settings,
+        session,
+        crate_path,
+        idx=session.total_crates - 1,
+        total=session.total_crates,
+        progress_callback=None,
+        profile_identifiers=profile_identifiers,
+        no_auto_profile=no_auto_profile,
+        cache=session.cache,
+    )
+    # keep the persisted history crash-safe: one save per validated crate
+    session.save()
+    return outcome
+
+
 # Minimum interval between incremental session saves during a batch run. The
 # session is always saved once more at the end, so this only throttles the
 # intermediate (crash/interrupt-recovery) saves.
@@ -533,8 +577,9 @@ def batch_validate(
         total = len(rocrate_uris)
         last_save = time.time()
         # One cache for the whole batch: profiles/shapes parsed for one crate
-        # are reused by every other crate resolving to the same key.
-        cache = cache if cache is not None else ValidationCache()
+        # are reused by every other crate resolving to the same key. The
+        # session owns it, unless the caller shares an external one.
+        cache = cache if cache is not None else session.cache
         for idx, crate_path in enumerate(rocrate_uris):
             # The returned live results are dropped unless explicitly asked
             # for: the outcome is already recorded in the session entry, and
