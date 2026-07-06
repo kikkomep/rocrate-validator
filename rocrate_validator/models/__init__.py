@@ -17,6 +17,7 @@ from rocrate_validator.models.batch import (
     BatchCrateEntry,
     BatchSession,
     BatchValidationResult,
+    ValidationSession,
 )
 from rocrate_validator.models.cache import ValidationCache
 from rocrate_validator.models.events import (
@@ -85,6 +86,7 @@ __all__ = [
     "ValidationContext",
     "ValidationEvent",
     "ValidationResult",
+    "ValidationSession",
     "ValidationSettings",
     "ValidationStatistics",
     "ValidationStatisticsListener",

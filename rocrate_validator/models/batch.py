@@ -18,9 +18,14 @@ import json
 from dataclasses import dataclass, fields
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+from uuid import uuid4
+
+if TYPE_CHECKING:
+    from typing_extensions import Self
 
 from rocrate_validator import __version__
+from rocrate_validator.models.cache import ValidationCache
 from rocrate_validator.models.result import CustomEncoder, ValidationResult
 
 
@@ -57,9 +62,24 @@ class BatchCrateEntry:
         return cls(**{k: v for k, v in data.items() if k in field_names})
 
 
-class BatchSession:
+class ValidationSession:
     """
-    Manages a batch validation session with incremental save/resume support.
+    Persisted record of a validation session, with incremental save/resume
+    support.
+
+    A session holds 1..N crate entries: a batch is a session with many
+    crates, a single-crate validation is a session with one — both share the
+    same JSON format, history directory and CLI (``sessions list/show/resume``).
+
+    The session also *owns* a transient :class:`ValidationCache` (never
+    serialized), so every validation performed through the same session reuses
+    the parsed profiles/shapes and data graphs.
+
+    Programmatic usage::
+
+        with ValidationSession.open() as session:      # or open(path=...)
+            outcome = session.validate("path/to/crate")
+        # on exit the session is saved and appears in `sessions list`
     """
 
     SESSION_VERSION = "1.0"
@@ -89,6 +109,110 @@ class BatchSession:
         # `requirement_severity_only` is dropped by ``ValidationSettings.to_dict()``,
         # so it is tracked here to faithfully reconstruct the settings on resume.
         self.requirement_severity_only: bool = False
+        # In-memory cache of parsed graphs, owned by the session for the
+        # duration of the run and deliberately excluded from serialization.
+        self._cache: ValidationCache | None = None
+
+    @classmethod
+    def open(cls, path: str | Path | None = None, settings: dict | None = None) -> ValidationSession:
+        """
+        Open a new session for programmatic use.
+
+        :param path: where to persist the session; when ``None`` a new file is
+            created in the user sessions directory (the same history browsed
+            by ``sessions list``)
+        :param settings: base validation settings applied to every
+            :meth:`validate` call of this session (per-call settings override them)
+        """
+        if path is None:
+            from rocrate_validator.utils.paths import get_user_sessions_dir  # noqa: PLC0415 - avoid circular import
+
+            name = f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}-{uuid4().hex[:8]}.json"
+            path = get_user_sessions_dir() / name
+        return cls(validation_settings=dict(settings or {}), crate_paths=[], session_path=Path(path))
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> bool:
+        # a session left with pending entries was not completed, whether it
+        # exited cleanly or through an exception; entries already recorded
+        # stay valid either way (save() promotes to "completed" when all done)
+        if not self.is_completed():
+            self.status = "interrupted"
+        self.save()
+        return False
+
+    @property
+    def cache(self) -> ValidationCache:
+        """The session-owned cache of parsed profiles/shapes and data graphs."""
+        # `load()` builds instances via ``__new__``, so the attribute may not exist
+        if getattr(self, "_cache", None) is None:
+            self._cache = ValidationCache()
+        return self._cache
+
+    @property
+    def mode(self) -> str:
+        """``"single"`` when the session tracks one crate, ``"batch"`` otherwise."""
+        return "single" if self.total_crates == 1 else "batch"
+
+    def validate(
+        self,
+        rocrate_uri: str | Path,
+        profile_identifiers: list[str] | str | None = None,
+        no_auto_profile: bool | None = None,
+        settings: dict | None = None,
+    ) -> list[tuple[str, ValidationResult]] | None:
+        """
+        Validate a crate within this session, recording the outcome as a
+        session entry and reusing the session cache.
+
+        Re-validating a crate already in the session *overwrites* its entry
+        (the session keeps the latest outcome, consistently with batch resume).
+
+        :param rocrate_uri: the crate to validate
+        :param profile_identifiers: explicit profile(s); defaults to the
+            session-level ``profile_identifiers``, otherwise auto-detection
+        :param no_auto_profile: disable auto-detection; defaults to the session-level flag
+        :param settings: per-call validation settings, merged over the session ones
+        :return: the ``(crate path, result)`` pairs — one per profile the crate
+            was validated against — or ``None`` if the validation raised (the
+            error is recorded on the session entry)
+        """
+        from rocrate_validator import services  # noqa: PLC0415 - avoid circular import
+
+        return services.session_validate(
+            self,
+            rocrate_uri,
+            profile_identifiers=profile_identifiers,
+            no_auto_profile=no_auto_profile,
+            settings=settings,
+        )
+
+    def _ensure_entry(self, crate_path: str) -> BatchCrateEntry:
+        """
+        Return the entry for ``crate_path``, creating it when missing and
+        resetting it (with consistent counters) when it holds a previous outcome.
+        """
+        entry = self._find_entry(crate_path)
+        if entry is None:
+            entry = BatchCrateEntry(path=crate_path, status="pending")
+            self.crates.append(entry)
+            self.total_crates = len(self.crates)
+            return entry
+        if entry.status in ("completed", "failed"):
+            # overwrite semantics: drop the previous outcome from the counters
+            self.completed_crates = max(0, self.completed_crates - 1)
+            if entry.passed is False:
+                self.failed_crates = max(0, self.failed_crates - 1)
+            entry.status = "pending"
+            entry.passed = None
+            entry.duration = None
+            entry.error = None
+            entry.issues = None
+            entry.statistics = None
+            entry.profiles = None
+        return entry
 
     @staticmethod
     def _compute_size_bytes(crate_path: str) -> int | None:
@@ -203,6 +327,7 @@ class BatchSession:
                 "created_at": self.created_at.isoformat(),
                 "updated_at": self.updated_at.isoformat(),
                 "status": self.status,
+                "mode": self.mode,
                 "total_crates": self.total_crates,
                 "completed_crates": self.completed_crates,
                 "failed_crates": self.failed_crates,
@@ -217,7 +342,7 @@ class BatchSession:
         }
 
     @classmethod
-    def load(cls, path: Path) -> BatchSession:
+    def load(cls, path: Path) -> ValidationSession:
         """Deserialize a session from a JSON file."""
         with Path(path).open("r", encoding="utf-8") as f:
             data = json.load(f)
@@ -238,6 +363,7 @@ class BatchSession:
         instance.requirement_severity_only = bool(batch_options.get("requirement_severity_only", False))
         instance.session_path = path
         instance.crates = [BatchCrateEntry.from_dict(c) for c in data.get("crates", [])]
+        instance._cache = None
         return instance
 
     def _find_entry(self, crate_path: str) -> BatchCrateEntry | None:
@@ -245,6 +371,11 @@ class BatchSession:
             if e.path == crate_path:
                 return e
         return None
+
+
+# Backward-compatible alias: the batch session generalized into the unified
+# ValidationSession (1..N crates); existing imports keep working.
+BatchSession = ValidationSession
 
 
 class BatchValidationResult:
@@ -263,7 +394,7 @@ class BatchValidationResult:
     (see :func:`~rocrate_validator.services.batch_validate`).
     """
 
-    def __init__(self, session: BatchSession, live_results: list[tuple[str, ValidationResult]] | None = None):
+    def __init__(self, session: ValidationSession, live_results: list[tuple[str, ValidationResult]] | None = None):
         self.session = session
         self._live_results = live_results if live_results is not None else []
 
