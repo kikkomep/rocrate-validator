@@ -14,7 +14,7 @@
 
 """
 ``rocrate-validator sessions`` subcommand: inspect and clear the auto-managed
-batch validation sessions stored under the user cache directory.
+validation sessions stored under the user cache directory.
 """
 
 from __future__ import annotations
@@ -57,7 +57,7 @@ _RESUMABLE_STATUSES = ("in_progress", "interrupted")
 @click.pass_context
 def sessions(ctx):  # pylint: disable=unused-argument
     """
-    [magenta]rocrate-validator:[/magenta] Manage auto-managed batch validation sessions
+    [magenta]rocrate-validator:[/magenta] Manage auto-managed validation sessions
     """
 
 
@@ -65,7 +65,7 @@ def sessions(ctx):  # pylint: disable=unused-argument
 @click.pass_context
 def sessions_path(ctx):
     """
-    Print the directory where batch sessions are stored.
+    Print the directory where validation sessions are stored.
     """
     console = ctx.obj["console"]
     console.print(str(get_user_sessions_dir()))
@@ -114,7 +114,7 @@ def sessions_show(
     color: bool | None = None,
 ):
     """
-    Show the recorded output of a stored batch session.
+    Show the recorded output of a stored validation session.
 
     Pass a session ID (the short ID shown by `sessions list` is enough), or run
     without arguments in interactive mode to pick one from a menu. The session
@@ -165,7 +165,7 @@ def _select_session(console, summaries: list[dict], session_id: str | None) -> d
             return None
         return matches[0]
     if not summaries:
-        console.print("[yellow]No batch sessions stored.[/yellow]")
+        console.print("[yellow]No validation sessions stored.[/yellow]")
         return None
     choices = [(s["id"], _resume_choice_label(s)) for s in summaries]
     chosen_id = single_choice(console, "Select a session to show:", choices)
@@ -265,7 +265,7 @@ def _write_stats_to_file(
 @click.pass_context
 def sessions_resume(ctx, session_id: str | None = None, verbose: bool = False):
     """
-    Resume an interrupted batch validation session.
+    Resume an interrupted validation session.
 
     Pass a session ID (the short ID shown by `sessions list` is enough) to resume
     that session, or run without arguments in interactive mode to pick one from a
@@ -312,7 +312,7 @@ def sessions_resume(ctx, session_id: str | None = None, verbose: bool = False):
 @click.pass_context
 def sessions_list(ctx, status_filter: str | None = None, as_json: bool = False):
     """
-    List the stored batch validation sessions (alias: `ls`).
+    List the stored validation sessions (alias: `ls`).
     """
     console = ctx.obj["console"]
     try:
@@ -326,12 +326,13 @@ def sessions_list(ctx, status_filter: str | None = None, as_json: bool = False):
             if status_filter:
                 console.print(f"[yellow]No sessions with status:[/yellow] {status_filter}")
             else:
-                console.print("[yellow]No batch sessions stored.[/yellow]")
+                console.print("[yellow]No validation sessions stored.[/yellow]")
             return
 
-        table = Table(title=f"Batch sessions ({len(summaries)})", show_lines=True)
+        table = Table(title=f"Validation sessions ({len(summaries)})", show_lines=True)
         table.add_column("ID", no_wrap=True)
         table.add_column("Status")
+        table.add_column("Mode")
         table.add_column("Crates", justify="right")
         table.add_column("Target", overflow="fold")
         table.add_column("Size", justify="right")
@@ -340,6 +341,7 @@ def sessions_list(ctx, status_filter: str | None = None, as_json: bool = False):
             table.add_row(
                 s["id"][:12],
                 _format_status(s["status"]),
+                s["mode"] or "—",
                 _format_crates(s),
                 s["target"] or "—",
                 _format_bytes(s["size_bytes"]),
@@ -383,7 +385,7 @@ def sessions_clear(
     yes: bool = False,
 ):
     """
-    Remove stored batch sessions (alias: `rm`).
+    Remove stored validation sessions (alias: `rm`).
 
     Pass one or more session IDs (the short ID shown by `sessions list` is enough),
     or use --completed / --all to select sessions in bulk.
@@ -623,6 +625,7 @@ def _read_session_summary(path: Path) -> dict:
         "id": path.stem,
         "file": str(path),
         "status": "unknown",
+        "mode": None,
         "total_crates": None,
         "completed_crates": None,
         "failed_crates": None,
@@ -637,6 +640,10 @@ def _read_session_summary(path: Path) -> dict:
         session = data.get("session", {})
         summary["status"] = session.get("status", "unknown")
         summary["total_crates"] = session.get("total_crates")
+        # sessions written before the mode field derive it from the cardinality
+        summary["mode"] = session.get("mode") or (
+            ("single" if session.get("total_crates") == 1 else "batch") if session.get("total_crates") else None
+        )
         summary["completed_crates"] = session.get("completed_crates")
         summary["failed_crates"] = session.get("failed_crates")
         summary["created_at"] = _parse_iso(session.get("created_at"))
@@ -667,6 +674,7 @@ def _summary_to_dict(summary: dict) -> dict:
     return {
         "id": summary["id"],
         "status": summary["status"],
+        "mode": summary["mode"],
         "total_crates": summary["total_crates"],
         "completed_crates": summary["completed_crates"],
         "failed_crates": summary["failed_crates"],

@@ -552,7 +552,7 @@ def test_batch_validate_valid_crates(cli_runner: CliRunner):
     )
     # Should succeed with at least 2 valid crates found
     assert result.exit_code == 0, result.output
-    assert "Batch Validation Summary" in result.output
+    assert "Validation Summary" in result.output
 
 
 def test_batch_validate_auto_session(cli_runner: CliRunner):
@@ -646,7 +646,7 @@ def test_batch_validate_mixed_crates(cli_runner: CliRunner, tmp_path):
     )
     # Should fail because at least one crate fails
     assert result.exit_code == 1, result.output
-    assert "Batch Validation Summary" in result.output
+    assert "Validation Summary" in result.output
     # Verbose per-crate details are rendered (from the session entries)
     assert "Failed crate details:" in result.output
 
@@ -915,7 +915,7 @@ def test_batch_with_output_file_text(cli_runner: CliRunner, tmp_path):
     assert result.exit_code == 0, result.output
     assert output_file.exists()
     content = output_file.read_text()
-    assert "Batch Validation Summary" in content
+    assert "Validation Summary" in content
 
 
 def test_batch_canonical_positional_target(cli_runner: CliRunner):
@@ -936,7 +936,7 @@ def test_batch_canonical_positional_target(cli_runner: CliRunner):
         ],
     )
     assert result.exit_code == 0, result.output
-    assert "Batch Validation Summary" in result.output
+    assert "Validation Summary" in result.output
 
 
 def test_no_resume_ignores_saved_session(cli_runner: CliRunner):
@@ -958,7 +958,7 @@ def test_no_resume_ignores_saved_session(cli_runner: CliRunner):
         ],
     )
     assert result.exit_code == 0, result.output
-    assert "Batch Validation Summary" in result.output
+    assert "Validation Summary" in result.output
 
 
 @mark.parametrize("flag", ["--batch-pattern=foo*", "--no-resume"])
@@ -1291,14 +1291,14 @@ def test_sessions_show_renders_session(cli_runner: CliRunner, isolated_sessions_
     assert "Profiles" in out
     assert "crateA" in out and "crateB" in out
     assert "ro-crate-1.1" in out
-    assert "Batch Validation Summary" in out
+    assert "Validation Summary" in out
     assert "passed validation" in out.lower()
 
 
 def test_sessions_list_empty(cli_runner: CliRunner, isolated_sessions_dir):
     result = cli_runner.invoke(cli, ["--no-interactive", "sessions", "list"])
     assert result.exit_code == 0, result.output
-    assert "no batch sessions" in result.output.lower()
+    assert "no validation sessions" in result.output.lower()
 
 
 def test_sessions_list_and_json(cli_runner: CliRunner, isolated_sessions_dir):
@@ -1311,7 +1311,7 @@ def test_sessions_list_and_json(cli_runner: CliRunner, isolated_sessions_dir):
 
     result = cli_runner.invoke(cli, ["--no-interactive", "sessions", "list"])
     assert result.exit_code == 0, result.output
-    assert "Batch sessions (2)" in result.output
+    assert "Validation sessions (2)" in result.output
 
     result_json = cli_runner.invoke(cli, ["--no-interactive", "sessions", "ls", "--json"])
     assert result_json.exit_code == 0, result_json.output
@@ -1319,7 +1319,7 @@ def test_sessions_list_and_json(cli_runner: CliRunner, isolated_sessions_dir):
     assert {d["id"] for d in data} == {"aaa111", "bbb222"}
 
     filtered = cli_runner.invoke(cli, ["--no-interactive", "sessions", "list", "--status", "interrupted"])
-    assert "Batch sessions (1)" in filtered.output
+    assert "Validation sessions (1)" in filtered.output
 
 
 def test_sessions_clear_requires_scope(cli_runner: CliRunner, isolated_sessions_dir):
