@@ -323,6 +323,37 @@ def resolve_batch_session_path(
     return get_batch_session_path(key_parts)
 
 
+def resolve_single_crate_session_path(
+    settings: ValidationSettings,
+    rocrate_uri: str | Path,
+    profile_identifiers: list[str] | None = None,
+    no_auto_profile: bool = False,
+) -> Path:
+    """
+    Resolve the auto-managed session file path for a single-crate validation.
+
+    Mirrors :func:`resolve_batch_session_path`: the path is derived
+    deterministically from the crate URI and the settings that affect the
+    outcome, so re-validating the same crate with the same criteria overwrites
+    the same history entry instead of accumulating duplicates.
+    """
+    settings_dict = settings.to_dict() if hasattr(settings, "to_dict") else {}
+    profile_key = str(sorted(profile_identifiers)) if profile_identifiers else f"auto:{not no_auto_profile}"
+    severity_only = bool(
+        getattr(settings, "requirement_severity_only", settings_dict.get("requirement_severity_only", False))
+    )
+    uri = URI(str(rocrate_uri))
+    target = str(uri.as_path().resolve()) if uri.is_local_resource() else str(uri)
+    key_parts = [
+        target,
+        "single",
+        profile_key,
+        str(settings_dict.get("requirement_severity", "")),
+        str(severity_only),
+    ]
+    return get_batch_session_path(key_parts)
+
+
 def _load_previous_session(session_path: Path | None) -> BatchSession | None:
     """Load an existing batch session for auto-resume, or ``None`` if unavailable."""
     if not session_path or not Path(session_path).exists():
