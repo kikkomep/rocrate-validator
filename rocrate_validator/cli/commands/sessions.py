@@ -147,7 +147,9 @@ def sessions_show(
         handle_error(e, console)
 
 
-def _select_session(console, summaries: list[dict], session_id: str | None) -> dict | None:
+def _select_session(
+    console, summaries: list[dict], session_id: str | None, prompt: str = "Select a session to show:"
+) -> dict | None:
     """
     Resolve which session to act on (any status). With an explicit ``session_id``
     the session is matched by ID prefix; without one the stored sessions are
@@ -168,7 +170,7 @@ def _select_session(console, summaries: list[dict], session_id: str | None) -> d
         console.print("[yellow]No validation sessions stored.[/yellow]")
         return None
     choices = [(s["id"], _resume_choice_label(s)) for s in summaries]
-    chosen_id = single_choice(console, "Select a session to show:", choices)
+    chosen_id = single_choice(console, prompt, choices)
     if not chosen_id:
         return None
     return next((s for s in summaries if s["id"] == chosen_id), None)
@@ -284,7 +286,54 @@ def sessions_resume(ctx, session_id: str | None = None, verbose: bool = False):
         target = _select_resume_target(console, summaries, session_id)
         if target is None:
             return
-        result = _resume_session(console, Path(target["file"]), verbose=verbose, interactive=interactive)
+        result = _run_stored_session(
+            console, Path(target["file"]), fresh=False, verbose=verbose, interactive=interactive
+        )
+        exit_code = 0 if result.passed() else 1
+    except Exception as e:
+        handle_error(e, console)
+        return
+    if exit_code:
+        ctx.exit(exit_code)
+
+
+@sessions.command("restart")
+@click.argument("session_id", required=False)
+@click.option(
+    "-v",
+    "--verbose",
+    is_flag=True,
+    default=False,
+    help="Show the details of failed crates after restarting",
+)
+@click.pass_context
+def sessions_restart(ctx, session_id: str | None = None, verbose: bool = False):
+    """
+    Re-run a stored validation session from scratch.
+
+    Unlike `resume` — which continues an *interrupted* session from where it
+    stopped — restart re-validates [bold]every[/bold] crate of the session with
+    the same criteria (profiles, severity), overwriting the recorded outcomes.
+    It works on sessions of any status, typically a completed one whose crates
+    have changed since the last run.
+
+    Pass a session ID (the short ID shown by `sessions list` is enough), or run
+    without arguments in interactive mode to pick one from a menu.
+    """
+    console = ctx.obj["console"]
+    interactive = ctx.obj.get("interactive", False)
+    if not session_id and not interactive:
+        raise click.UsageError("Specify a session ID (run `sessions list` to see the available sessions).")
+
+    exit_code = 0
+    try:
+        summaries = _collect_sessions()
+        target = _select_session(console, summaries, session_id, prompt="Select a session to restart:")
+        if target is None:
+            return
+        result = _run_stored_session(
+            console, Path(target["file"]), fresh=True, verbose=verbose, interactive=interactive
+        )
         exit_code = 0 if result.passed() else 1
     except Exception as e:
         handle_error(e, console)
@@ -522,8 +571,12 @@ def _resume_choice_label(summary: dict) -> str:
     return f"{summary['id'][:12]}  [{summary['status']}]  {progress}  {target}"
 
 
-def _resume_session(console, session_file: Path, *, verbose: bool, interactive: bool):
-    """Reconstruct the settings from a saved session and continue its validation."""
+def _run_stored_session(console, session_file: Path, *, fresh: bool, verbose: bool, interactive: bool):
+    """
+    Reconstruct the settings from a saved session and run its validation:
+    continue from where it stopped (``fresh=False``, resume) or re-validate
+    every crate from scratch (``fresh=True``, restart).
+    """
     session = BatchSession.load(session_file)
     crate_paths = [c.path for c in session.crates]
 
@@ -538,7 +591,7 @@ def _resume_session(console, session_file: Path, *, verbose: bool, interactive: 
     # crate paths to show them relative (and report it as the input below).
     base = _common_base(crate_paths)
 
-    pending = sum(1 for c in session.crates if c.status != "completed")
+    pending = len(crate_paths) if fresh else sum(1 for c in session.crates if c.status != "completed")
     if interactive:
         # Header up front: session, input and profiles, before the per-crate list,
         # so the relative crate paths shown during validation are easy to interpret.
@@ -547,12 +600,16 @@ def _resume_session(console, session_file: Path, *, verbose: bool, interactive: 
         if base:
             header_rows.append(("Input", base, "cyan"))
         header_rows.append(("Profiles", profiles, profiles_style))
-        render_batch_header(
-            console,
-            headline=(
+        if fresh:
+            headline = f"[bold]Restarting session[/bold] [dim]·[/dim] [cyan]{pending}[/cyan] crate(s) to validate"
+        else:
+            headline = (
                 f"[bold]Resuming session[/bold] [dim]·[/dim] "
                 f"[cyan]{pending}[/cyan] of [cyan]{len(crate_paths)}[/cyan] crate(s) to validate"
-            ),
+            )
+        render_batch_header(
+            console,
+            headline=headline,
             rows=header_rows,
             status=session.status,
         )
@@ -563,7 +620,7 @@ def _resume_session(console, session_file: Path, *, verbose: bool, interactive: 
         settings=settings,
         rocrate_uris=crate_paths,
         session_path=session_file,
-        fresh=False,
+        fresh=fresh,
         profile_identifiers=session.profile_identifiers,
         no_auto_profile=session.no_auto_profile,
         base_path=Path(base) if base else None,
