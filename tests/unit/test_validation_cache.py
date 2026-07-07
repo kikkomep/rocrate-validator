@@ -186,3 +186,43 @@ def test_data_graph_reused_across_validations(tmp_path):
 
     third = services.validate(_settings(rocrate_uri=str(crate)), cache=cache)
     assert _fingerprint(third) != _fingerprint(first), "the modified crate must be re-parsed and re-validated"
+
+
+def test_profile_cache_lru_eviction():
+    """Beyond the bound, the least-recently-used profile entry is evicted."""
+    cache = ValidationCache(max_profile_entries=2)
+    profiles_path = get_profiles_path()
+    cache.get_or_load_profiles(profiles_path, publicID="file:///a/")
+    cache.get_or_load_profiles(profiles_path, publicID="file:///b/")
+    # Touch "a" so that "b" becomes the least recently used entry.
+    cache.get_or_load_profiles(profiles_path, publicID="file:///a/")
+    cache.get_or_load_profiles(profiles_path, publicID="file:///c/")
+
+    assert cache.info["profile_entries"] == 2, "the bound must hold"
+    assert cache.info["evictions"] == 1
+
+    misses = cache.info["misses"]
+    cache.get_or_load_profiles(profiles_path, publicID="file:///a/")
+    assert cache.info["misses"] == misses, "the recently-used entry must survive"
+    cache.get_or_load_profiles(profiles_path, publicID="file:///b/")
+    assert cache.info["misses"] == misses + 1, "the evicted entry must reload"
+
+
+def test_data_graph_cache_lru_eviction(tmp_path):
+    """Beyond the bound, the least-recently-used data graph is evicted."""
+    cache = ValidationCache(max_data_graph_entries=1)
+    file_a = tmp_path / "a.json"
+    file_a.write_text("{}")
+    file_b = tmp_path / "b.json"
+    file_b.write_text("{}")
+
+    graph_a, graph_b = object(), object()
+    assert cache.get_or_load_data_graph(lambda: graph_a, file_a, publicID=None) is graph_a
+    assert cache.get_or_load_data_graph(lambda: graph_b, file_b, publicID=None) is graph_b
+    assert cache.info["data_graph_entries"] == 1, "the bound must hold"
+    assert cache.info["evictions"] == 1
+
+    reloaded = object()
+    assert cache.get_or_load_data_graph(lambda: reloaded, file_a, publicID=None) is reloaded, (
+        "the evicted graph must be reloaded through the loader"
+    )

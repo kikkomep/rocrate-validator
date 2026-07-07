@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -26,6 +27,15 @@ if TYPE_CHECKING:
     from rdflib import Graph
 
     from rocrate_validator.models.profile import Profile
+
+# Default LRU bounds. Profile entries are keyed by publicID (among other
+# parameters), so in a batch of distinct crates every crate produces a new
+# entry of several MBs (the full parsed profile set): without a bound the
+# cache grows linearly with the batch size until the process is OOM-killed.
+# Sequential access (a batch) only needs the current entry; a small headroom
+# covers warm re-validations and alternating access patterns.
+DEFAULT_MAX_PROFILE_ENTRIES = 8
+DEFAULT_MAX_DATA_GRAPH_ENTRIES = 16
 
 
 class ValidationCache:
@@ -44,20 +54,41 @@ class ValidationCache:
     relative ``sh:targetNode`` IRIs that resolve against the crate base URI,
     so the parsed shapes are genuinely crate-dependent for them.
 
+    Both caches are bounded with an LRU policy (see
+    ``DEFAULT_MAX_PROFILE_ENTRIES`` / ``DEFAULT_MAX_DATA_GRAPH_ENTRIES``):
+    since profile entries are per-publicID, an unbounded cache would retain
+    one full profile set per crate across a batch. Evicted entries are simply
+    reloaded on the next request; consumers holding objects from an evicted
+    entry are unaffected.
+
     The cache holds parsed ``rdflib`` graphs and is intentionally not
     serializable: its lifetime is bound to the owning object (a batch run, a
     session, an interactive process). Instances are not thread-safe; share
     one per thread, or synchronize externally.
     """
 
-    def __init__(self):
-        self._profiles: dict[tuple, list[Profile]] = {}
+    def __init__(
+        self,
+        max_profile_entries: int = DEFAULT_MAX_PROFILE_ENTRIES,
+        max_data_graph_entries: int = DEFAULT_MAX_DATA_GRAPH_ENTRIES,
+    ):
+        self._profiles: OrderedDict[tuple, list[Profile]] = OrderedDict()
         # data graphs keyed by (metadata path, publicID, relative root), each
         # entry stamped with the source file (st_mtime_ns, st_size) so that a
         # crate modified on disk is transparently re-parsed
-        self._data_graphs: dict[tuple, tuple[tuple[int, int], Graph]] = {}
+        self._data_graphs: OrderedDict[tuple, tuple[tuple[int, int], Graph]] = OrderedDict()
+        self._max_profile_entries = max(1, int(max_profile_entries))
+        self._max_data_graph_entries = max(1, int(max_data_graph_entries))
         self._hits: int = 0
         self._misses: int = 0
+        self._evictions: int = 0
+
+    def __evict_lru__(self, entries: OrderedDict, max_entries: int, kind: str) -> None:
+        """Drop least-recently-used entries until ``entries`` fits ``max_entries``."""
+        while len(entries) > max_entries:
+            evicted_key, _ = entries.popitem(last=False)
+            self._evictions += 1
+            logger.debug("ValidationCache evicted %s entry: %s", kind, evicted_key)
 
     @staticmethod
     def __profiles_key__(
@@ -99,6 +130,7 @@ class ValidationCache:
         cached = self._profiles.get(key)
         if cached is not None:
             self._hits += 1
+            self._profiles.move_to_end(key)
             logger.debug("ValidationCache hit for profiles key: %s", key)
             return list(cached)
         self._misses += 1
@@ -112,6 +144,7 @@ class ValidationCache:
             allow_requirement_check_override=allow_requirement_check_override,
         )
         self._profiles[key] = list(profiles)
+        self.__evict_lru__(self._profiles, self._max_profile_entries, "profiles")
         return list(profiles)
 
     def get_or_load_data_graph(
@@ -161,12 +194,15 @@ class ValidationCache:
             entry_stamp, graph = entry
             if entry_stamp == stamp:
                 self._hits += 1
+                self._data_graphs.move_to_end(key)
                 logger.debug("ValidationCache hit for data graph key: %s", key)
                 return graph
             logger.debug("ValidationCache stale data graph for %s: reloading", key)
         self._misses += 1
         graph = loader()
         self._data_graphs[key] = (stamp, graph)
+        self._data_graphs.move_to_end(key)
+        self.__evict_lru__(self._data_graphs, self._max_data_graph_entries, "data graph")
         return graph
 
     def clear(self) -> None:
@@ -183,4 +219,5 @@ class ValidationCache:
             "data_graph_entries": len(self._data_graphs),
             "hits": self._hits,
             "misses": self._misses,
+            "evictions": self._evictions,
         }
