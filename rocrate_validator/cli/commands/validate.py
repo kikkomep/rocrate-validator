@@ -50,7 +50,7 @@ from rocrate_validator.utils.io_helpers.output.console import Console
 from rocrate_validator.utils.io_helpers.output.json import JSONOutputFormatter
 from rocrate_validator.utils.io_helpers.output.text import TextOutputFormatter
 from rocrate_validator.utils.io_helpers.output.text.layout.report import LiveTextProgressLayout, get_app_header_rule
-from rocrate_validator.utils.io_helpers.output.text.statistics import render_statistics
+from rocrate_validator.utils.io_helpers.output.text.statistics import render_issue_reference, render_statistics
 from rocrate_validator.utils.paths import get_profiles_path
 from rocrate_validator.utils.uri import validate_rocrate_uri
 
@@ -867,6 +867,10 @@ def _write_batch_report(
             BatchValidationCommandView(console=out).show_summary(batch_result, verbose=verbose)
             if stats:
                 render_statistics(out, crate_dicts)
+            # Appendix with the description of each reported issue type — only
+            # when the report shows issue identifiers (verbose details or stats).
+            if verbose or stats:
+                render_issue_reference(out, crate_dicts)
     else:
         batch_view.show_summary(batch_result, verbose=verbose)
         if stats:

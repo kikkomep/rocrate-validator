@@ -31,6 +31,8 @@ Each crate is classified into one of three mutually exclusive states:
 
 from __future__ import annotations
 
+import inspect
+import re
 import statistics as _stats
 from collections import Counter
 from pathlib import Path
@@ -38,9 +40,13 @@ from typing import TYPE_CHECKING
 
 from rich import box
 from rich.console import Group
+from rich.markdown import Markdown
+from rich.padding import Padding
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
+
+from rocrate_validator.utils.io_helpers.colors import get_severity_color
 
 if TYPE_CHECKING:
     from rich.console import Console
@@ -133,6 +139,65 @@ def crates_per_check(failed: list[dict]) -> tuple[Counter, dict[str, str]]:
             counter[code] += 1
             names[code] = name
     return counter, names
+
+
+def _clean_description(text: str | None) -> str:
+    """
+    Normalise a check/requirement description for rendering: SHACL string
+    literals often carry the indentation of the Turtle source on continuation
+    lines, which markdown would misread as a code block (4+ leading spaces).
+    """
+    return inspect.cleandoc(text) if text else ""
+
+
+def issue_type_reference(crates: list[dict]) -> list[dict]:
+    """
+    Build the reference of the distinct issue types found across ``crates``
+    (normalised records), grouped by the requirement each check belongs to.
+
+    Everything is read from the serialized issue records themselves (the
+    ``check`` dict of each issue carries its description, severity and
+    requirement), so no profile needs to be loaded. Returns a list of groups::
+
+        {"identifier", "name", "description",
+         "checks": [{"identifier", "name", "description", "severity"}]}
+
+    sorted by requirement identifier (checks sorted by identifier within each
+    group); checks whose issue record carries no requirement — e.g. sessions
+    saved by older versions — end up in a trailing group with ``identifier``
+    set to ``None``.
+    """
+    groups: dict[str | None, dict] = {}
+    for crate in crates:
+        for issue in crate["issues"]:
+            chk = issue.get("check") or {}
+            cid = chk.get("identifier")
+            if not cid:
+                continue
+            req = chk.get("requirement") or {}
+            rid = req.get("identifier")
+            group = groups.setdefault(
+                rid,
+                {
+                    "identifier": rid,
+                    "name": (req.get("name") or "").strip(),
+                    "description": _clean_description(req.get("description")),
+                    "checks": {},
+                },
+            )
+            if cid not in group["checks"]:
+                group["checks"][cid] = {
+                    "identifier": cid,
+                    "name": (chk.get("name") or "").strip(),
+                    "description": _clean_description(chk.get("description")),
+                    "severity": chk.get("severity"),
+                }
+    ordered = sorted((g for rid, g in groups.items() if rid is not None), key=lambda g: g["identifier"])
+    if None in groups:
+        ordered.append(groups[None])
+    for group in ordered:
+        group["checks"] = sorted(group["checks"].values(), key=lambda c: c["identifier"])
+    return ordered
 
 
 # ===========================================================================
@@ -441,6 +506,50 @@ def _render_outliers(con: Console, failed, threshold: int) -> None:
     )
 
 
+def render_issue_reference(console: Console, crate_dicts: list[dict]) -> None:
+    """
+    Render the "Issue Type Reference" appendix: for every distinct issue type
+    reported across ``crate_dicts`` (raw crate records), its description —
+    grouped under the requirement it belongs to. The identifiers are the same
+    ones used by the summary/statistics tables, so a reader can search the
+    report for an identifier and land on its description here.
+
+    Rendered only to file reports (plain text or markdown); nothing is printed
+    when no crate reported issues.
+    """
+    failed = failed_crates([normalise_crate(c) for c in crate_dicts])
+    groups = issue_type_reference(failed)
+    if not groups:
+        return
+    renderables: list = []
+    for group in groups:
+        if renderables:
+            renderables.append(Text(""))
+        if group["identifier"]:
+            renderables.append(Text.from_markup(f"[bold {_C_TYPE}]{group['identifier']}[/] — [bold]{group['name']}[/]"))
+            if group["description"]:
+                renderables.append(Padding(Markdown(group["description"]), (0, 2)))
+        for chk in group["checks"]:
+            severity = chk["severity"] or ""
+            sev_markup = f" [{get_severity_color(severity)}]{severity}[/]" if severity else ""
+            renderables.append(
+                Padding(
+                    Text.from_markup(f"[bold {_C_TYPE}]{chk['identifier']}[/]{sev_markup} — {chk['name']}"),
+                    (1 if group["identifier"] else 0, 0, 0, 2),
+                )
+            )
+            if chk["description"]:
+                renderables.append(Padding(Markdown(chk["description"]), (0, 4)))
+    console.print()
+    console.print(
+        _spanel(
+            "Appendix: Issue Type Reference",
+            "Description of every issue type reported in this document, grouped by requirement",
+            *renderables,
+        )
+    )
+
+
 def _render_detailed(con: Console, crates, failed, errored, top_n: int, outlier_threshold: int) -> None:
     _render_overview(con, crates, failed, errored)
     if failed:
@@ -498,6 +607,29 @@ def render_statistics(
 # ===========================================================================
 # Markdown file output
 # ===========================================================================
+
+
+def _md_slug(identifier: str) -> str:
+    """Anchor-safe slug for a check/requirement identifier."""
+    return re.sub(r"[^0-9A-Za-z_.-]+", "-", identifier)
+
+
+def _md_check_anchor(code: str) -> str:
+    return f"check-{_md_slug(code)}"
+
+
+def _md_requirement_anchor(code: str) -> str:
+    return f"requirement-{_md_slug(code)}"
+
+
+def _md_check_link(code: str) -> str:
+    """A check identifier as a link to its appendix entry."""
+    return f"[`{code}`](#{_md_check_anchor(code)})"
+
+
+def _md_check_links(error_types: list[tuple[str, str]]) -> str:
+    """Comma-separated list of check-identifier links (for the ``Types`` columns)."""
+    return ", ".join(_md_check_link(code) for code, _ in error_types)
 
 
 def _md_table(headers: list[str], rows: list[list[str]], align_left: list[int] | None = None) -> str:
@@ -575,6 +707,7 @@ def render_statistics_md(
     _md_write_issue_attribution(w, failed)
     _md_write_slowest(w, failed, top_n)
     _md_write_outliers(w, failed, outlier_threshold)
+    _md_write_issue_reference(w, failed)
 
 
 def _md_write_summary_line(w, crates, errored) -> None:
@@ -637,7 +770,7 @@ def _md_write_error_types(w, failed) -> None:
     rows = []
     for code, cnt in counter.most_common():
         pct = 100 * cnt / total_f if total_f else 0
-        rows.append([code, str(cnt), f"{pct:.1f}%", names[code]])
+        rows.append([_md_check_link(code), str(cnt), f"{pct:.1f}%", names[code]])
     w(_md_table(["Check", "Crates", "Share", "Description"], rows, align_left=[0, 3]))
     single = sum(1 for c in failed if len(c["error_types"]) == 1)
     multi = sum(1 for c in failed if len(c["error_types"]) > 1)
@@ -659,11 +792,11 @@ def _md_write_issue_attribution(w, failed) -> None:
             multi_crates.append(crate)
     w(f"Total REQUIRED issues: **{total_subs}**\n\n")
     if single_attrib:
-        rows = [[code, str(cnt)] for code, cnt in sorted(single_attrib.items(), key=lambda x: -x[1])]
+        rows = [[_md_check_link(code), str(cnt)] for code, cnt in sorted(single_attrib.items(), key=lambda x: -x[1])]
         w(_md_table(["Check", "REQUIRED Issues"], rows, align_left=[0]))
         w("\n")
     if multi_crates:
-        rows = [[c["name"], str(c["subissues"]), ", ".join(code for code, _ in c["error_types"])] for c in multi_crates]
+        rows = [[c["name"], str(c["subissues"]), _md_check_links(c["error_types"])] for c in multi_crates]
         w(_md_table(["Crate", "REQUIRED Issues", "Types"], rows, align_left=[0, 2]))
         w("\n")
 
@@ -696,6 +829,39 @@ def _md_write_outliers(w, failed, outlier_threshold) -> None:
     if not outliers:
         w(f"No outlier crates with ≥ {outlier_threshold} REQUIRED issues.\n\n")
     else:
-        rows = [[c["name"], str(c["subissues"]), ", ".join(code for code, _ in c["error_types"])] for c in outliers]
+        rows = [[c["name"], str(c["subissues"]), _md_check_links(c["error_types"])] for c in outliers]
         w(_md_table(["Crate", "REQUIRED Issues", "Types"], rows, align_left=[0, 2]))
         w("\n")
+
+
+def _md_write_issue_reference(w, failed) -> None:
+    """
+    Appendix with the description of every distinct issue type reported in the
+    document. Each entry carries an explicit HTML anchor so the check
+    identifiers used across the report can link here (GFM heading auto-slugs
+    are renderer-specific, an explicit ``<a id>`` works everywhere).
+    """
+    groups = issue_type_reference(failed)
+    if not groups:
+        return
+    w("## Appendix: Issue Type Reference\n\n")
+    w(
+        "Description of every issue type reported in this document, grouped by "
+        "the requirement it belongs to. The check identifiers used across the "
+        "report link to the entries below.\n\n"
+    )
+    for group in groups:
+        if group["identifier"]:
+            title = f"`{group['identifier']}`" + (f" — {group['name']}" if group["name"] else "")
+            w(f'### <a id="{_md_requirement_anchor(group["identifier"])}"></a>{title}\n\n')
+            if group["description"]:
+                w(group["description"] + "\n\n")
+        else:
+            w("### Other checks\n\n")
+        for chk in group["checks"]:
+            title = f"`{chk['identifier']}`" + (f" — {chk['name']}" if chk["name"] else "")
+            w(f'#### <a id="{_md_check_anchor(chk["identifier"])}"></a>{title}\n\n')
+            if chk["severity"]:
+                w(f"**Severity:** {chk['severity']}\n\n")
+            if chk["description"]:
+                w(chk["description"] + "\n\n")
