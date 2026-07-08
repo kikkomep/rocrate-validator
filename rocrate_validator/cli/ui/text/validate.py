@@ -550,11 +550,13 @@ class BatchValidationCommandView:
 
         stats = entry.statistics or {}
         if stats:
+            # Counter colours mirror the statistics tables (total checks in
+            # blue, passed in green, failed in red).
             self.console.print(
                 Padding(
-                    f"Checks executed: {stats.get('total_checks', 0)} | "
-                    f"Passed: {stats.get('total_passed_checks', 0)} | "
-                    f"Failed: {stats.get('total_failed_checks', 0)}",
+                    f"Checks executed: [bold blue]{stats.get('total_checks', 0)}[/bold blue] | "
+                    f"Passed: [bold green]{stats.get('total_passed_checks', 0)}[/bold green] | "
+                    f"Failed: [bold red]{stats.get('total_failed_checks', 0)}[/bold red]",
                     (0, 4),
                 )
             )
