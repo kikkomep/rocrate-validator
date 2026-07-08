@@ -83,6 +83,13 @@ def sessions_path(ctx):
     help="Append textual statistics about the session",
 )
 @click.option(
+    "-v",
+    "--verbose",
+    is_flag=True,
+    default=False,
+    help="Show the details of failed crates (with --stats on a single-crate session, include every issue message)",
+)
+@click.option(
     "-o",
     "--output-file",
     type=click.Path(dir_okay=False, writable=True, path_type=Path),
@@ -110,6 +117,7 @@ def sessions_show(
     ctx,
     session_id: str | None = None,
     stats: bool = False,
+    verbose: bool = False,
     output_file: Path | None = None,
     output_format: str = "text",
     color: bool | None = None,
@@ -120,10 +128,13 @@ def sessions_show(
     Pass a session ID (the short ID shown by `sessions list` is enough), or run
     without arguments in interactive mode to pick one from a menu. The session
     header and the summary table are rendered from what was saved, without
-    re-validating anything; add --stats for the textual statistics.
+    re-validating anything; add --stats for the textual statistics and -v for
+    the details of the failed crates.
 
     Use --output-file to write the statistics to a file instead of the console.
     Supported formats are ``text`` (plain or ANSI-coloured) and ``md`` (markdown).
+    Sessions holding a single crate get a dedicated per-crate report instead of
+    the batch statistics; with -v it includes every recorded issue message.
     """
     console = ctx.obj["console"]
     interactive = ctx.obj.get("interactive", False)
@@ -140,6 +151,7 @@ def sessions_show(
             console,
             Path(target["file"]),
             stats=stats,
+            verbose=verbose,
             output_file=output_file,
             output_format=output_format,
             color=color,
@@ -182,6 +194,7 @@ def _show_session(
     session_file: Path,
     *,
     stats: bool = False,
+    verbose: bool = False,
     output_file: Path | None = None,
     output_format: str = "text",
     color: bool | None = None,
@@ -208,7 +221,7 @@ def _show_session(
     # shown live during `validate` is intentionally not reproduced here — the
     # summary table already lists every crate.
     result = BatchValidationResult(session)
-    BatchValidationCommandView(console=console).show_summary(result, verbose=False)
+    BatchValidationCommandView(console=console).show_summary(result, verbose=verbose)
 
     crate_dicts = [e.to_dict() for e in entries]
     if stats:
@@ -218,9 +231,12 @@ def _show_session(
                 output_file=output_file,
                 output_format=output_format,
                 color=color,
+                verbose=verbose,
             )
             console.print(f"[dim]Statistics written to[/dim] {output_file}")
         else:
+            # The issue details are not repeated here: with -v they are already
+            # rendered by the summary above (verbose failed-crate details).
             render_statistics(console, crate_dicts)
 
     if session.is_completed():
@@ -239,11 +255,12 @@ def _write_stats_to_file(
     output_file: Path,
     output_format: str,
     color: bool | None = None,
+    verbose: bool = False,
 ) -> None:
     """Write batch statistics to a file in the requested format."""
     if output_format == "md":
         with output_file.open("w", encoding="utf-8") as f:
-            render_statistics_md(f, crate_dicts)
+            render_statistics_md(f, crate_dicts, verbose=verbose)
     else:
         with output_file.open("w", encoding="utf-8") as f:
             no_color = not color if color is not None else True
@@ -253,7 +270,7 @@ def _write_stats_to_file(
             else:
                 kwargs["color_system"] = "standard"
             out = Console(**kwargs)
-            render_statistics(out, crate_dicts)
+            render_statistics(out, crate_dicts, verbose=verbose)
             render_issue_reference(out, crate_dicts)
 
 

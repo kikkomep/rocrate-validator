@@ -1364,6 +1364,160 @@ def test_sessions_show_stats_output_file_text_appendix(cli_runner: CliRunner, is
     assert "Requirement Two constrains the licence." in content
 
 
+def _write_single_crate_session(sessions_dir, name: str = "s1", outcome: str = "failed") -> None:
+    """
+    Store a fake completed session holding one crate: ``failed`` (default,
+    with full issue records), ``passed`` or ``error``.
+    """
+    sessions_dir.mkdir(parents=True, exist_ok=True)
+    now = "2026-06-22T10:00:00+00:00"
+    check_alpha = {
+        "identifier": "check-01",
+        "name": "Check Alpha",
+        "description": "Alpha checks the root data entity.",
+        "severity": "REQUIRED",
+        "requirement": {
+            "identifier": "req-01",
+            "name": "Requirement One",
+            "description": "Requirement One constrains the root.",
+        },
+    }
+    crate: dict = {
+        "path": "/a/mycrate",
+        "status": "completed",
+        "passed": outcome == "passed",
+        "profiles": ["ro-crate-1.1"],
+        "duration": 0.5,
+        "size_bytes": 2048,
+        "issues": [],
+        "statistics": {"total_checks": 5, "total_passed_checks": 5, "total_failed_checks": 0},
+    }
+    if outcome == "failed":
+        crate["issues"] = [
+            {
+                "severity": "REQUIRED",
+                "message": "The root MUST have a name",
+                "violatingEntity": "./",
+                "violatingProperty": "http://schema.org/name",
+                "check": check_alpha,
+            },
+            {
+                "severity": "REQUIRED",
+                "message": "The root MUST have a licence",
+                "check": check_alpha,
+            },
+        ]
+        crate["statistics"] = {"total_checks": 5, "total_passed_checks": 4, "total_failed_checks": 1}
+    elif outcome == "error":
+        crate.update(status="failed", passed=False, error="Not a valid RO-Crate", statistics=None)
+    data = {
+        "session": {
+            "version": "1.0",
+            "rocrate_validator_version": "test",
+            "created_at": now,
+            "updated_at": now,
+            "status": "completed",
+            "mode": "single",
+            "total_crates": 1,
+            "completed_crates": 1,
+            "failed_crates": 0 if outcome == "passed" else 1,
+        },
+        "validation_settings": {},
+        "batch_options": {"profile_identifiers": ["ro-crate-1.1"], "no_auto_profile": False},
+        "crates": [crate],
+    }
+    (sessions_dir / f"{name}.json").write_text(json.dumps(data), encoding="utf-8")
+
+
+def test_sessions_show_stats_single_crate_md(cli_runner: CliRunner, isolated_sessions_dir, tmp_path):
+    """A single-crate session gets the dedicated report, not the batch statistics."""
+    output_file = tmp_path / "single.md"
+    _write_single_crate_session(isolated_sessions_dir)
+
+    result = cli_runner.invoke(
+        cli, ["--no-interactive", "sessions", "show", "s1", "--stats", "-o", str(output_file), "-f", "md"]
+    )
+    assert result.exit_code == 0, result.output
+    content = output_file.read_text()
+    assert "# Validation Report — mycrate" in content
+    assert "- **Outcome:** **FAILED**" in content
+    assert "## Checks Summary" in content
+    assert "| 5 | 4 | 1 | 80.0% |" in content
+    assert "Total issues: **2** — REQUIRED **2**" in content
+    assert "## Failed Checks" in content
+    assert "[`check-01`](#check-check-01)" in content
+    assert "## Appendix: Issue Type Reference" in content
+    # None of the (degenerate) population-level batch sections is present...
+    assert "## Outcome Summary" not in content
+    assert "## Issues Per Crate" not in content
+    assert "## Slowest Crates" not in content
+    assert "## Outlier Crates" not in content
+    # ...and the issue messages only appear with --verbose.
+    assert "## Issue Details" not in content
+
+    result = cli_runner.invoke(
+        cli, ["--no-interactive", "sessions", "show", "s1", "--stats", "-v", "-o", str(output_file), "-f", "md"]
+    )
+    assert result.exit_code == 0, result.output
+    content = output_file.read_text()
+    assert "## Issue Details" in content
+    assert "The root MUST have a name" in content
+    assert "entity: ./ · property: http://schema.org/name" in content
+
+
+def test_sessions_show_stats_single_crate_text(cli_runner: CliRunner, isolated_sessions_dir, tmp_path):
+    """The text single-crate report mirrors the markdown one."""
+    output_file = tmp_path / "single.txt"
+    _write_single_crate_session(isolated_sessions_dir)
+
+    result = cli_runner.invoke(
+        cli, ["--no-interactive", "sessions", "show", "s1", "--stats", "-v", "-o", str(output_file)]
+    )
+    assert result.exit_code == 0, result.output
+    content = output_file.read_text()
+    assert "Validation Report" in content
+    assert "Checks Summary" in content
+    assert "Failed Checks" in content
+    assert "Issue Details" in content
+    assert "The root MUST have a name" in content
+    assert "Appendix: Issue Type Reference" in content
+    assert "Outcome Summary" not in content
+
+
+def test_sessions_show_stats_single_crate_passed_and_error(cli_runner: CliRunner, isolated_sessions_dir, tmp_path):
+    """Passed and errored single-crate sessions render their degenerate cases."""
+    _write_single_crate_session(isolated_sessions_dir, name="ok1", outcome="passed")
+    output_file = tmp_path / "single_ok.md"
+    result = cli_runner.invoke(
+        cli, ["--no-interactive", "sessions", "show", "ok1", "--stats", "-o", str(output_file), "-f", "md"]
+    )
+    assert result.exit_code == 0, result.output
+    content = output_file.read_text()
+    assert "- **Outcome:** **PASSED**" in content
+    assert "No issues reported." in content
+    assert "## Failed Checks" not in content
+
+    _write_single_crate_session(isolated_sessions_dir, name="err1", outcome="error")
+    output_file = tmp_path / "single_err.md"
+    result = cli_runner.invoke(
+        cli, ["--no-interactive", "sessions", "show", "err1", "--stats", "-o", str(output_file), "-f", "md"]
+    )
+    assert result.exit_code == 0, result.output
+    content = output_file.read_text()
+    assert "- **Outcome:** **ERROR**" in content
+    assert "The crate could not be validated: Not a valid RO-Crate" in content
+    assert "## Checks Summary" not in content
+
+
+def test_sessions_show_verbose_console_details(cli_runner: CliRunner, isolated_sessions_dir):
+    """`sessions show -v` renders the failed-crate details on the console."""
+    _write_session_with_failures(isolated_sessions_dir)
+    result = cli_runner.invoke(cli, ["--no-interactive", "sessions", "show", "s1", "-v"])
+    assert result.exit_code == 0, result.output
+    assert "Failed crate details:" in result.output
+    assert "check-01" in result.output
+
+
 def test_sessions_show_renders_session(cli_runner: CliRunner, isolated_sessions_dir):
     _write_fake_session(
         isolated_sessions_dir,
