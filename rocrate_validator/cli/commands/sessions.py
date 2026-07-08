@@ -42,6 +42,7 @@ from rocrate_validator.utils import log as logging
 from rocrate_validator.utils.io_helpers.input import single_choice
 from rocrate_validator.utils.io_helpers.output.console import Console
 from rocrate_validator.utils.io_helpers.output.text.statistics import (
+    render_issue_reference,
     render_statistics,
     render_statistics_md,
 )
@@ -253,6 +254,7 @@ def _write_stats_to_file(
                 kwargs["color_system"] = "standard"
             out = Console(**kwargs)
             render_statistics(out, crate_dicts)
+            render_issue_reference(out, crate_dicts)
 
 
 @sessions.command("resume")

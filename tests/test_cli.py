@@ -1196,12 +1196,34 @@ def test_sessions_show_stats_output_file_md(cli_runner: CliRunner, isolated_sess
     assert "## Checks/Passed Combinations" in content
 
 
-def test_sessions_show_stats_output_file_md_with_failures(cli_runner: CliRunner, isolated_sessions_dir, tmp_path):
-    """Write statistics in markdown format for a session with failures."""
-    output_file = tmp_path / "stats_fail.md"
-    sessions_dir = isolated_sessions_dir
+def _write_session_with_failures(sessions_dir, name: str = "s1") -> None:
+    """Store a fake completed session with two passed and two failed crates."""
     sessions_dir.mkdir(parents=True, exist_ok=True)
     now = "2026-06-22T10:00:00+00:00"
+    # The issue records carry the full serialized check (description, severity,
+    # requirement), as written by real batch validations.
+    check_alpha = {
+        "identifier": "check-01",
+        "name": "Check Alpha",
+        "description": "Alpha checks the root data entity.",
+        "severity": "REQUIRED",
+        "requirement": {
+            "identifier": "req-01",
+            "name": "Requirement One",
+            "description": "Requirement One constrains the root.",
+        },
+    }
+    check_beta = {
+        "identifier": "check-02",
+        "name": "Check Beta",
+        "description": "Beta checks the licence.",
+        "severity": "OPTIONAL",
+        "requirement": {
+            "identifier": "req-02",
+            "name": "Requirement Two",
+            "description": "Requirement Two constrains the licence.",
+        },
+    }
     data = {
         "session": {
             "version": "1.0",
@@ -1238,14 +1260,8 @@ def test_sessions_show_stats_output_file_md_with_failures(cli_runner: CliRunner,
                 "passed": False,
                 "profiles": ["ro-crate-1.1"],
                 "issues": [
-                    {
-                        "severity": "REQUIRED",
-                        "check": {"identifier": "check-01", "name": "Check Alpha"},
-                    },
-                    {
-                        "severity": "OPTIONAL",
-                        "check": {"identifier": "check-02", "name": "Check Beta"},
-                    },
+                    {"severity": "REQUIRED", "check": check_alpha},
+                    {"severity": "OPTIONAL", "check": check_beta},
                 ],
                 "statistics": {"total_checks": 5, "total_passed_checks": 3},
             },
@@ -1255,16 +1271,19 @@ def test_sessions_show_stats_output_file_md_with_failures(cli_runner: CliRunner,
                 "passed": False,
                 "profiles": ["ro-crate-1.1"],
                 "issues": [
-                    {
-                        "severity": "REQUIRED",
-                        "check": {"identifier": "check-01", "name": "Check Alpha"},
-                    },
+                    {"severity": "REQUIRED", "check": check_alpha},
                 ],
                 "statistics": {"total_checks": 5, "total_passed_checks": 4},
             },
         ],
     }
-    (sessions_dir / "s1.json").write_text(json.dumps(data), encoding="utf-8")
+    (sessions_dir / f"{name}.json").write_text(json.dumps(data), encoding="utf-8")
+
+
+def test_sessions_show_stats_output_file_md_with_failures(cli_runner: CliRunner, isolated_sessions_dir, tmp_path):
+    """Write statistics in markdown format for a session with failures."""
+    output_file = tmp_path / "stats_fail.md"
+    _write_session_with_failures(isolated_sessions_dir)
 
     result = cli_runner.invoke(
         cli, ["--no-interactive", "sessions", "show", "s1", "--stats", "-o", str(output_file), "-f", "md"]
@@ -1276,6 +1295,32 @@ def test_sessions_show_stats_output_file_md_with_failures(cli_runner: CliRunner,
     assert "| FAILED | 2 | 50.0% |" in content
     assert "## Error-Type Distribution" in content
     assert "## Issue Attribution" in content
+    # Check identifiers in the tables link to the appendix entries...
+    assert "[`check-01`](#check-check-01)" in content
+    # ...where each issue type (and its requirement) is described and anchored.
+    assert "## Appendix: Issue Type Reference" in content
+    assert '<a id="requirement-req-01"></a>`req-01` — Requirement One' in content
+    assert '<a id="check-check-01"></a>`check-01` — Check Alpha' in content
+    assert "**Severity:** REQUIRED" in content
+    assert "Alpha checks the root data entity." in content
+    assert "Requirement One constrains the root." in content
+
+
+def test_sessions_show_stats_output_file_text_appendix(cli_runner: CliRunner, isolated_sessions_dir, tmp_path):
+    """The text file report also ends with the issue-type reference appendix."""
+    output_file = tmp_path / "stats_fail.txt"
+    _write_session_with_failures(isolated_sessions_dir)
+
+    result = cli_runner.invoke(cli, ["--no-interactive", "sessions", "show", "s1", "--stats", "-o", str(output_file)])
+    assert result.exit_code == 0, result.output
+    content = output_file.read_text()
+    assert "Appendix: Issue Type Reference" in content
+    # Identifiers match the ones used by the statistics tables (searchable),
+    # each followed by its description.
+    assert "check-01" in content
+    assert "Alpha checks the root data entity." in content
+    assert "req-02" in content
+    assert "Requirement Two constrains the licence." in content
 
 
 def test_sessions_show_renders_session(cli_runner: CliRunner, isolated_sessions_dir):
