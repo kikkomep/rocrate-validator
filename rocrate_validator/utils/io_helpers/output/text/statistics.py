@@ -46,6 +46,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from rocrate_validator.constants import BYTES_PER_KIB
 from rocrate_validator.utils.io_helpers.colors import get_severity_color
 
 if TYPE_CHECKING:
@@ -100,8 +101,10 @@ def normalise_crate(crate: dict) -> dict:
         "passed": passed,
         "status": status,
         "error": crate.get("error"),
+        "profiles": crate.get("profiles") or [],
         "checks": stats.get("total_checks", 0),
         "passed_checks": stats.get("total_passed_checks", 0),
+        "failed_checks": stats.get("total_failed_checks", 0),
         "issues": issues,
         "n_issues": len(issues),
         # Individual REQUIRED issue lines (the legacy "└─ Required" count).
@@ -198,6 +201,48 @@ def issue_type_reference(crates: list[dict]) -> list[dict]:
     for group in ordered:
         group["checks"] = sorted(group["checks"].values(), key=lambda c: c["identifier"])
     return ordered
+
+
+# Standard severities, most severe first, used to order per-severity counts.
+_SEVERITY_ORDER = ("REQUIRED", "RECOMMENDED", "OPTIONAL")
+
+
+def issues_by_severity(crate: dict) -> dict[str, int]:
+    """
+    Issue counts of one crate (normalised record) keyed by severity name,
+    standard severities first. Counted from the issues themselves, so with
+    multiple profiles the numbers reflect the union of the per-profile results.
+    """
+    counts = Counter(i.get("severity") or "UNKNOWN" for i in crate["issues"])
+    ordered = {s: counts[s] for s in _SEVERITY_ORDER if s in counts}
+    ordered.update({s: c for s, c in counts.items() if s not in _SEVERITY_ORDER})
+    return ordered
+
+
+def issues_per_check(crate: dict) -> list[dict]:
+    """
+    Per-check issue breakdown of one crate (normalised record): for each failed
+    check its identifier, name, severity and the list of issues it reported —
+    most issues first. This is the single-crate counterpart of
+    :func:`crates_per_check` (which counts *crates* affected per check).
+    """
+    per_check: dict[str, dict] = {}
+    for issue in crate["issues"]:
+        chk = issue.get("check") or {}
+        cid = chk.get("identifier")
+        if not cid:
+            continue
+        entry = per_check.setdefault(
+            cid,
+            {
+                "identifier": cid,
+                "name": (chk.get("name") or "").strip(),
+                "severity": chk.get("severity"),
+                "issues": [],
+            },
+        )
+        entry["issues"].append(issue)
+    return sorted(per_check.values(), key=lambda e: (-len(e["issues"]), e["identifier"]))
 
 
 # ===========================================================================
@@ -564,6 +609,159 @@ def _render_detailed(con: Console, crates, failed, errored, top_n: int, outlier_
 
 
 # ===========================================================================
+# Single-crate report
+# ===========================================================================
+#
+# With a single crate every population-level view of the batch statistics
+# degenerates (100% shares, distributions of one value, rankings of one
+# element), so sessions holding one crate get a dedicated report instead:
+# outcome header, checks summary, per-severity issue counts and a per-check
+# issue breakdown — optionally followed by the individual issue messages.
+
+_STATUS_STYLE = {"PASSED": "bold green", "FAILED": "bold red", "ERROR": "bold yellow"}
+
+
+def _human_size(size_bytes: int | None) -> str | None:
+    if size_bytes is None:
+        return None
+    value = float(size_bytes)
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if value < BYTES_PER_KIB or unit == "TiB":
+            return f"{int(value)} B" if unit == "B" else f"{value:.1f} {unit}"
+        value /= BYTES_PER_KIB
+    return None  # pragma: no cover — the loop always returns
+
+
+def _issue_message(issue: dict) -> str:
+    """
+    The message of one issue, whitespace-normalised: multi-line SHACL messages
+    carry the indentation of the Turtle source, which would break the list
+    rendering (and read as code blocks in markdown).
+    """
+    return " ".join((issue.get("message") or "(no message)").split())
+
+
+def _issue_context(issue: dict) -> str:
+    """Compact ``entity/property/value`` context of one issue ('' when absent)."""
+    parts = []
+    if issue.get("violatingEntity"):
+        parts.append(f"entity: {issue['violatingEntity']}")
+    if issue.get("violatingProperty"):
+        parts.append(f"property: {issue['violatingProperty']}")
+    if issue.get("violatingPropertyValue"):
+        parts.append(f"value: {issue['violatingPropertyValue']}")
+    return " · ".join(parts)
+
+
+def _single_crate_header_rows(crate: dict) -> list[tuple[str, str]]:
+    """The ``(label, value)`` bullet rows of the single-crate report header."""
+    rows: list[tuple[str, str]] = [("Path", crate["path"])]
+    if crate["profiles"]:
+        rows.append(("Profiles", ", ".join(crate["profiles"])))
+    rows.append(("Outcome", crate["status"]))
+    if crate.get("duration") is not None:
+        rows.append(("Duration", f"{crate['duration']:.2f}s"))
+    size = _human_size(crate.get("size_bytes"))
+    if size:
+        rows.append(("Size", size))
+    return rows
+
+
+def _render_single_checks_summary(con: Console, crate: dict) -> None:
+    total, passed = crate["checks"], crate["passed_checks"]
+    failed = crate["failed_checks"] or max(total - passed, 0)
+    t = _rtable()
+    t.add_column("Total checks", justify="right")
+    t.add_column("Passed", justify="right")
+    t.add_column("Failed", justify="right")
+    t.add_column("Pass rate", justify="right")
+    rate = 100 * passed / total if total else 0
+    t.add_row(
+        f"[bold {_C_CHECKS}]{total}[/]",
+        f"[bold {_C_PASSED}]{passed}[/]",
+        f"[bold {_C_ISSUES}]{failed}[/]",
+        f"[{_C_PERCENT}]{rate:.1f}%[/]",
+    )
+    con.print(_spanel("Checks Summary", "Checks executed against the crate", t))
+
+
+def _render_single_failed_checks(con: Console, crate: dict) -> None:
+    breakdown = issues_per_check(crate)
+    counts = issues_by_severity(crate)
+    total = " · ".join(f"[{get_severity_color(sev)}]{sev}[/] [bold {_C_ISSUES}]{cnt}[/]" for sev, cnt in counts.items())
+    t = _rtable()
+    t.add_column("Check", style=_C_TYPE, no_wrap=True)
+    t.add_column("Severity")
+    t.add_column("Issues", justify="right")
+    t.add_column("Name")
+    maxv = max((len(e["issues"]) for e in breakdown), default=1)
+    for entry in breakdown:
+        severity = entry["severity"] or ""
+        t.add_row(
+            entry["identifier"],
+            f"[{get_severity_color(severity)}]{severity}[/]" if severity else "—",
+            f"[bold {_C_ISSUES}]{len(entry['issues'])}[/] {_bar(len(entry['issues']), maxv, 8, color=_C_ISSUES)}",
+            entry["name"],
+        )
+    con.print(
+        _spanel(
+            "Failed Checks",
+            "How many issues each failed check reported on the crate",
+            Text.from_markup(f"Total issues: [bold {_C_ISSUES}]{crate['n_issues']}[/]   {total}"),
+            Text(""),
+            t,
+        )
+    )
+
+
+def _render_single_issue_details(con: Console, crate: dict) -> None:
+    renderables: list = []
+    for entry in issues_per_check(crate):
+        if renderables:
+            renderables.append(Text(""))
+        severity = entry["severity"] or ""
+        sev_markup = f" [{get_severity_color(severity)}]{severity}[/]" if severity else ""
+        renderables.append(Text.from_markup(f"[bold {_C_TYPE}]{entry['identifier']}[/]{sev_markup} — {entry['name']}"))
+        for issue in entry["issues"]:
+            renderables.append(Padding(Text(f"└─ {_issue_message(issue)}"), (0, 2)))
+            context = _issue_context(issue)
+            if context:
+                renderables.append(Padding(Text(context, style="dim"), (0, 5)))
+    con.print(_spanel("Issue Details", "Every issue reported on the crate, grouped by check", *renderables))
+
+
+def _render_single_crate(console: Console, crate: dict, verbose: bool = False) -> None:
+    """Render the dedicated report of a session holding a single crate."""
+    console.rule(f"[bold cyan]Validation Report[/] — [bold]{crate['name']}[/]")
+    rows = _single_crate_header_rows(crate)
+    label_width = max(len(label) for label, _ in rows)
+    for label, value in rows:
+        style = _STATUS_STYLE.get(value, "cyan") if label == "Outcome" else "cyan"
+        console.print(f"  [dim]•[/dim] [bold]{label:<{label_width}}[/bold]   [{style}]{value}[/{style}]")
+    console.print()
+
+    if crate["status"] == "ERROR":
+        console.print(
+            _spanel(
+                "Validation Error",
+                "The crate could not be validated",
+                Text(crate.get("error") or "(no message)", style=_C_ERROR),
+            )
+        )
+        return
+
+    _render_single_checks_summary(console, crate)
+    if crate["status"] == "PASSED":
+        console.print("  [green]✓ No issues reported.[/green]")
+        return
+    console.print()
+    _render_single_failed_checks(console, crate)
+    if verbose:
+        console.print()
+        _render_single_issue_details(console, crate)
+
+
+# ===========================================================================
 # Public entry point
 # ===========================================================================
 
@@ -575,20 +773,32 @@ def render_statistics(
     include_errors: bool = True,
     top_n: int = 10,
     outlier_threshold: int = 5,
+    verbose: bool = False,
 ) -> None:
     """
     Render the textual batch statistics for ``crate_dicts`` to ``console``.
+
+    A session holding a single crate gets a dedicated per-crate report instead
+    of the batch statistics (whose population-level views degenerate with one
+    crate); ``verbose`` extends it with the individual issue messages.
 
     :param console: target console (the validator's Rich console)
     :param crate_dicts: raw crate records (``BatchCrateEntry.to_dict()`` shape)
     :param include_errors: include the crates that could not be validated at all
     :param top_n: how many of the slowest crates to list
     :param outlier_threshold: minimum individual issues for a crate to be an outlier
+    :param verbose: single-crate report only — include every issue message
     """
     all_crates = [normalise_crate(c) for c in crate_dicts]
     crates = select(all_crates, include_errors=include_errors)
     failed = failed_crates(crates)
     errored = errored_crates(crates)
+
+    if len(crates) == 1:
+        console.print()
+        console.print()
+        _render_single_crate(console, crates[0], verbose=verbose)
+        return
 
     # Separate the statistics section from whatever was printed before it.
     console.print()
@@ -688,14 +898,26 @@ def render_statistics_md(
     include_errors: bool = True,
     top_n: int = 10,
     outlier_threshold: int = 5,
+    verbose: bool = False,
 ) -> None:
-    """Write batch statistics to *file* in markdown format."""
+    """
+    Write batch statistics to *file* in markdown format.
+
+    A session holding a single crate gets a dedicated per-crate report instead
+    of the batch statistics; ``verbose`` extends it with the individual issue
+    messages.
+    """
     all_crates = [normalise_crate(c) for c in crate_dicts]
     crates = select(all_crates, include_errors=include_errors)
     failed = failed_crates(crates)
     errored = errored_crates(crates)
 
     w = file.write
+
+    if len(crates) == 1:
+        _md_write_single_crate(w, crates[0], verbose=verbose)
+        _md_write_issue_reference(w, failed)
+        return
 
     w("# Validation Statistics\n\n")
     _md_write_summary_line(w, crates, errored)
@@ -708,6 +930,58 @@ def render_statistics_md(
     _md_write_slowest(w, failed, top_n)
     _md_write_outliers(w, failed, outlier_threshold)
     _md_write_issue_reference(w, failed)
+
+
+def _md_write_single_crate(w, crate: dict, verbose: bool = False) -> None:
+    """
+    Markdown counterpart of :func:`_render_single_crate`: the dedicated report
+    of a session holding a single crate (the caller appends the appendix).
+    """
+    w(f"# Validation Report — {crate['name']}\n\n")
+    for label, value in _single_crate_header_rows(crate):
+        value_md = f"**{value}**" if label == "Outcome" else (f"`{value}`" if label == "Path" else value)
+        w(f"- **{label}:** {value_md}\n")
+    w("\n")
+
+    if crate["status"] == "ERROR":
+        w(f"The crate could not be validated: {crate.get('error') or '(no message)'}\n\n")
+        return
+
+    w("## Checks Summary\n\n")
+    total, passed = crate["checks"], crate["passed_checks"]
+    failed = crate["failed_checks"] or max(total - passed, 0)
+    rate = 100 * passed / total if total else 0
+    summary_row = [str(total), str(passed), str(failed), f"{rate:.1f}%"]
+    w(_md_table(["Total checks", "Passed", "Failed", "Pass rate"], [summary_row]))
+    w("\n")
+
+    if crate["status"] == "PASSED":
+        w("No issues reported.\n\n")
+        return
+
+    w("## Issues\n\n")
+    counts = " · ".join(f"{sev} **{cnt}**" for sev, cnt in issues_by_severity(crate).items())
+    w(f"Total issues: **{crate['n_issues']}** — {counts}\n\n")
+
+    w("## Failed Checks\n\n")
+    breakdown = issues_per_check(crate)
+    rows = [
+        [_md_check_link(e["identifier"]), e["severity"] or "—", str(len(e["issues"])), e["name"]] for e in breakdown
+    ]
+    w(_md_table(["Check", "Severity", "Issues", "Name"], rows, align_left=[0, 3]))
+    w("\n")
+
+    if verbose:
+        w("## Issue Details\n\n")
+        for entry in breakdown:
+            title = _md_check_link(entry["identifier"]) + (f" — {entry['name']}" if entry["name"] else "")
+            w(f"### {title}\n\n")
+            for issue in entry["issues"]:
+                w(f"- {_issue_message(issue)}\n")
+                context = _issue_context(issue)
+                if context:
+                    w(f"  <br>*{context}*\n")
+            w("\n")
 
 
 def _md_write_summary_line(w, crates, errored) -> None:
