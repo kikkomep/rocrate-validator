@@ -420,11 +420,18 @@ class BatchValidationCommandView:
 
     @staticmethod
     def _summary_source_and_name(crate_path: str, common: str, common_prefix: str) -> tuple[str, str]:
-        """Split a crate path into a (source, crate-name) pair relative to the common prefix."""
+        """
+        Split a crate path into a (source, crate-name) pair relative to the
+        common prefix of the session paths: the source is the crate's parent
+        path below the common root, which identifies its collection in corpora
+        organised per source (e.g. ``<root>/<source>/<crate>``). With a flat
+        corpus the source is the same for every crate and the summary table
+        omits the column altogether.
+        """
         if common_prefix and crate_path.startswith(common_prefix):
             rel_parts = Path(crate_path[len(common_prefix) :]).parts
             if len(rel_parts) >= _MIN_REL_PARTS_FOR_SOURCE:
-                return rel_parts[0], str(Path(*rel_parts[1:]))
+                return str(Path(*rel_parts[:-1])), rel_parts[-1]
             # crate is a direct child of common prefix: use common's last dir as source
             return Path(common).name, (rel_parts[0] if rel_parts else crate_path)
         return Path(crate_path).parent.name, Path(crate_path).name
@@ -434,11 +441,13 @@ class BatchValidationCommandView:
         table: Table,
         entry: BatchCrateEntry,
         *,
-        common: str,
-        common_prefix: str,
+        source: str | None,
+        crate_name: str,
     ) -> None:
-        """Append a single crate's summary row to the batch table from its session entry."""
-        source, crate_name = self._summary_source_and_name(entry.path, common, common_prefix)
+        """
+        Append a single crate's summary row to the batch table from its session
+        entry; ``source`` is prepended only when the table shows the column.
+        """
         stats = entry.statistics or {}
         size = (
             self._format_size(entry.size_bytes)
@@ -446,8 +455,7 @@ class BatchValidationCommandView:
             else self._crate_disk_size(entry.path) or "—"
         )
         duration = entry.duration
-        table.add_row(
-            source,
+        cells = [
             crate_name,
             ", ".join(entry.profiles or []) or "—",
             size,
@@ -456,7 +464,10 @@ class BatchValidationCommandView:
             str(stats.get("total_passed_checks", 0)),
             str(len(entry.issues or [])),
             f"{duration:.2f}s" if duration else "—",
-        )
+        ]
+        if source is not None:
+            cells.insert(0, source)
+        table.add_row(*cells)
 
     def show_summary(self, batch_result: BatchValidationResult, verbose: bool = False):
         """
@@ -470,6 +481,24 @@ class BatchValidationCommandView:
         passed = len(batch_result.passed_entries())
         failed = len(batch_result.failed_entries())
 
+        # Compute common prefix once so each crate's parent path below it
+        # identifies the collection the crate belongs to (workflowhub, rohub,
+        # …) in corpora organised per source, e.g. .../workflowhub/crate.
+        all_paths = [entry.path for entry in batch_result.crates]
+        try:
+            common = str(Path(os.path.commonpath(all_paths)))
+            common_prefix = common + os.sep
+        except (ValueError, TypeError):
+            common = ""
+            common_prefix = ""
+
+        sources_and_names = [
+            self._summary_source_and_name(entry.path, common, common_prefix) for entry in batch_result.crates
+        ]
+        # With a flat corpus the source is the same on every row (the scan
+        # root): the column would carry no information, so it is omitted.
+        show_source = len({source for source, _ in sources_and_names}) > 1
+
         # Summary table
         table = Table(
             title="Validation Summary",
@@ -479,7 +508,8 @@ class BatchValidationCommandView:
             border_style="blue",
             expand=True,
         )
-        table.add_column("Source", style="dim", no_wrap=True)
+        if show_source:
+            table.add_column("Source", style="dim", no_wrap=True)
         table.add_column("RO-Crate", style="white", no_wrap=True, ratio=1)
         table.add_column("Profile", style="cyan", no_wrap=True)
         table.add_column("Size", justify="right", min_width=9)
@@ -489,23 +519,12 @@ class BatchValidationCommandView:
         table.add_column("Issues", justify="right", min_width=6)
         table.add_column("Duration", justify="right", min_width=8)
 
-        # Compute common prefix once so the first path component after it
-        # always identifies the repository source (workflowhub, rohub, …),
-        # even for deeply-nested crates like .../workflowhub/id/subdir/crate.
-        all_paths = [entry.path for entry in batch_result.crates]
-        try:
-            common = str(Path(os.path.commonpath(all_paths)))
-            common_prefix = common + os.sep
-        except (ValueError, TypeError):
-            common = ""
-            common_prefix = ""
-
-        for entry in batch_result.crates:
+        for entry, (source, crate_name) in zip(batch_result.crates, sources_and_names, strict=True):
             self._add_summary_row(
                 table,
                 entry,
-                common=common,
-                common_prefix=common_prefix,
+                source=source if show_source else None,
+                crate_name=crate_name,
             )
 
         self.console.print(Padding(Rule(style="blue"), (0, 0)))
