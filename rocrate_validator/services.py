@@ -234,11 +234,11 @@ def discover_ro_crates(
     pattern: str = "*",
 ) -> list[Path]:
     """
-    Scan a directory for the RO-Crates it directly contains.
+    Scan a directory for the RO-Crates it contains.
 
-    The directory is treated as the root of a flat list of crates. Only the
-    immediate level is inspected; crate payloads (data entities nested inside a
-    crate) are intentionally not descended into. A crate is discovered when:
+    The directory is treated as the root of a collection of crates: when it
+    *directly* contains at least one crate, only that level is inspected. A
+    crate is discovered when:
 
     - the scan directory itself holds an ``ro-crate-metadata.json`` (a crate
       defined directly in the scan root);
@@ -248,27 +248,37 @@ def discover_ro_crates(
       with ``ro-crate-metadata.json`` (e.g. ``crate_0001-ro-crate-metadata.json``);
       several such files can coexist in the same directory.
 
-    All results are filtered by the glob ``pattern`` against the entry name.
+    When the directory contains no crate at all, its subdirectories are
+    explored recursively until levels holding crates are found; the result is
+    the union of those nested collections (e.g. a corpus organised per source
+    as ``<root>/<source>/<crate>``). Hidden directories and symbolic links are
+    not traversed, and crate payloads (data entities nested inside a crate)
+    are never descended into.
+
+    All results are filtered by the glob ``pattern`` against the crate name
+    (intermediate directories are not matched against the pattern).
 
     :param directory: the directory to scan
-    :param pattern: glob pattern to filter entries by name (default: ``*``)
+    :param pattern: glob pattern to filter crates by name (default: ``*``)
     :return: sorted list of discovered RO-Crate paths
     """
     directory = Path(directory).resolve()
     if not directory.is_dir():
         raise NotADirectoryError(f"Not a directory: {directory}")
+    return sorted(c for c in _discover_crate_collection(directory) if fnmatch(c.name, pattern))
 
+
+def _crates_directly_in(directory: Path) -> set[Path]:
+    """The crates *directly* contained in ``directory`` (no pattern filtering)."""
     crates: set[Path] = set()
 
-    # The scan root itself may be a crate (its own ``ro-crate-metadata.json``).
-    if (directory / ROCRATE_METADATA_FILE).exists() and fnmatch(directory.name, pattern):
+    # The directory itself may be a crate (its own ``ro-crate-metadata.json``).
+    if (directory / ROCRATE_METADATA_FILE).exists():
         crates.add(directory)
 
     # Immediate children: subdirectory crates, zipped crates and detached crate
     # metadata files (single pass).
     for entry in directory.iterdir():
-        if not fnmatch(entry.name, pattern):
-            continue
         if entry.is_dir():
             if (entry / ROCRATE_METADATA_FILE).exists():
                 crates.add(entry)
@@ -276,11 +286,30 @@ def discover_ro_crates(
             crates.add(entry)
         elif entry.name.endswith(ROCRATE_METADATA_FILE) and entry.name != ROCRATE_METADATA_FILE:
             # A detached crate defined directly as a (prefixed) metadata file;
-            # the plain ``ro-crate-metadata.json`` is covered by the scan-root
-            # check above (it makes the directory itself the crate).
+            # the plain ``ro-crate-metadata.json`` is covered by the
+            # directory-is-a-crate check above.
             crates.add(entry)
 
-    return sorted(crates)
+    return crates
+
+
+def _discover_crate_collection(directory: Path) -> set[Path]:
+    """
+    The crate collection rooted at ``directory``: its direct crates when it
+    holds any (the level is a collection root and the descent stops there),
+    otherwise the union of the collections found by descending into its
+    visible, non-symlink subdirectories.
+    """
+    crates = _crates_directly_in(directory)
+    if crates:
+        return crates
+    for entry in directory.iterdir():
+        if entry.is_dir() and not entry.is_symlink() and not entry.name.startswith("."):
+            try:
+                crates |= _discover_crate_collection(entry)
+            except OSError as e:  # unreadable subtree: skip it, keep scanning
+                logger.debug("Skipping unreadable directory %s: %s", entry, e)
+    return crates
 
 
 def resolve_batch_session_path(

@@ -407,6 +407,43 @@ def test_discover_ro_crates_invalid_dir():
             discover_ro_crates(Path(tmp.name))
 
 
+def _make_dir_crate(path: Path) -> None:
+    path.mkdir(parents=True)
+    (path / "ro-crate-metadata.json").write_text("{}")
+
+
+def test_discover_ro_crates_nested_collections(tmp_path):
+    """With no crate at the scan root, discovery descends until levels holding crates."""
+    _make_dir_crate(tmp_path / "repoA" / "c1")
+    _make_dir_crate(tmp_path / "repoA" / "c2")
+    _make_dir_crate(tmp_path / "repoB" / "deeper" / "c3")
+    # Hidden directories are not traversed and non-crate files do not contribute.
+    _make_dir_crate(tmp_path / ".cache" / "c4")
+    (tmp_path / "README.md").write_text("")
+
+    crates = discover_ro_crates(tmp_path)
+    assert {c.name for c in crates} == {"c1", "c2", "c3"}
+    # The pattern applies to the crate names across all nested collections.
+    assert {c.name for c in discover_ro_crates(tmp_path, pattern="c1")} == {"c1"}
+
+
+def test_discover_ro_crates_direct_crates_stop_the_descent(tmp_path):
+    """A level directly holding crates is a collection root: siblings are not explored."""
+    _make_dir_crate(tmp_path / "crateA")
+    _make_dir_crate(tmp_path / "sub" / "crateB")
+
+    crates = discover_ro_crates(tmp_path)
+    assert {c.name for c in crates} == {"crateA"}
+
+
+def test_discover_ro_crates_no_crates_anywhere(tmp_path):
+    """A crateless tree (including symlinked dirs, never followed) yields no crates."""
+    (tmp_path / "a" / "b").mkdir(parents=True)
+    # A symlink loop back to the scan root must not be followed.
+    (tmp_path / "a" / "loop").symlink_to(tmp_path, target_is_directory=True)
+    assert discover_ro_crates(tmp_path) == []
+
+
 def test_batch_crate_entry_serialization():
     """Test BatchCrateEntry to_dict/from_dict roundtrip."""
     entry = BatchCrateEntry(
@@ -1475,6 +1512,69 @@ def test_sessions_show_verbose_console_details(cli_runner: CliRunner, isolated_s
     assert result.exit_code == 0, result.output
     assert "Failed crate details:" in result.output
     assert "check-01" in result.output
+
+
+def test_summary_source_column_only_for_multi_source_sessions(cli_runner: CliRunner, isolated_sessions_dir):
+    """The Source column appears only when the crates come from different collections."""
+    # Flat corpus: every crate is a direct child of the scan root — the source
+    # would be the same on every row, so the column is omitted.
+    _write_fake_session(
+        isolated_sessions_dir,
+        "flat01",
+        status="completed",
+        total=2,
+        completed=2,
+        failed=0,
+        paths=["/data/crateA", "/data/crateB"],
+    )
+    result = cli_runner.invoke(cli, ["--no-interactive", "sessions", "show", "flat01"])
+    assert result.exit_code == 0, result.output
+    assert "Source" not in result.output
+
+    # Nested corpus (<root>/<source>/<crate>): the parent path below the common
+    # root distinguishes the collections, so the column is shown.
+    _write_fake_session(
+        isolated_sessions_dir,
+        "multi01",
+        status="completed",
+        total=3,
+        completed=3,
+        failed=0,
+        paths=["/data/repoA/crate1", "/data/repoA/crate2", "/data/repoB/deeper/crate3"],
+    )
+    result = cli_runner.invoke(cli, ["--no-interactive", "sessions", "show", "multi01"])
+    assert result.exit_code == 0, result.output
+    assert "Source" in result.output
+    assert "repoA" in result.output
+    assert "repoB/deeper" in result.output
+
+
+def test_validate_batch_nested_corpus(cli_runner: CliRunner, tmp_path, isolated_sessions_dir):
+    """--batch descends into a nested corpus and the summary shows the Source column."""
+    import shutil
+
+    src = ValidROC().wrroc_paper_long_date
+    corpus = tmp_path / "corpus"
+    shutil.copytree(src, corpus / "repoA" / "crate1")
+    shutil.copytree(src, corpus / "repoB" / "crate2")
+
+    result = cli_runner.invoke(
+        cli,
+        [
+            "--no-interactive",
+            "validate",
+            "--batch",
+            str(corpus),
+            "--profile-identifier",
+            "ro-crate-1.1",
+            "--no-paging",
+            "--no-resume",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "crate1" in result.output and "crate2" in result.output
+    assert "Source" in result.output
+    assert "repoA" in result.output and "repoB" in result.output
 
 
 def test_sessions_show_renders_session(cli_runner: CliRunner, isolated_sessions_dir):
