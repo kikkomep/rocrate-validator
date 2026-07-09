@@ -32,6 +32,7 @@ Each crate is classified into one of three mutually exclusive states:
 from __future__ import annotations
 
 import inspect
+import os
 import re
 import statistics as _stats
 from collections import Counter
@@ -201,6 +202,30 @@ def issue_type_reference(crates: list[dict]) -> list[dict]:
     for group in ordered:
         group["checks"] = sorted(group["checks"].values(), key=lambda c: c["identifier"])
     return ordered
+
+
+def common_path_prefix(paths: list[str]) -> str:
+    """
+    The common directory prefix of the crate paths ('' when not derivable).
+    With a single crate the common path is the crate itself, which never
+    prefixes itself with a trailing separator: the source stays ''.
+    """
+    try:
+        return os.path.commonpath(paths) + os.sep
+    except (ValueError, TypeError):
+        return ""
+
+
+def source_below(path: str, common_prefix: str) -> str:
+    """
+    The crate's parent path below the common root of the report — the
+    collection grouping shown by the summary tables' Source column ('' for
+    crates sitting directly under the common root).
+    """
+    if common_prefix and path.startswith(common_prefix):
+        rel_parent = str(Path(path[len(common_prefix) :]).parent)
+        return "" if rel_parent == "." else rel_parent
+    return ""
 
 
 # Standard severities, most severe first, used to order per-severity counts.
