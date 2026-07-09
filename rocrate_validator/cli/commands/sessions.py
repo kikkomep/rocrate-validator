@@ -22,6 +22,7 @@ from __future__ import annotations
 import copy as _copy
 import json
 import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -41,10 +42,11 @@ from rocrate_validator.models import BatchSession, BatchValidationResult, Valida
 from rocrate_validator.utils import log as logging
 from rocrate_validator.utils.io_helpers.input import single_choice
 from rocrate_validator.utils.io_helpers.output.console import Console
+from rocrate_validator.utils.io_helpers.output.csv_report import write_report_csv
 from rocrate_validator.utils.io_helpers.output.text.statistics import (
     render_issue_reference,
+    render_report_md,
     render_statistics,
-    render_statistics_md,
 )
 from rocrate_validator.utils.paths import get_user_sessions_dir
 
@@ -87,30 +89,7 @@ def sessions_path(ctx):
     "--verbose",
     is_flag=True,
     default=False,
-    help="Show the details of failed crates (with --stats on a single-crate session, include every issue message)",
-)
-@click.option(
-    "-o",
-    "--output-file",
-    type=click.Path(dir_okay=False, writable=True, path_type=Path),
-    default=None,
-    help="Write statistics to a file instead of the console (requires --stats)",
-)
-@click.option(
-    "-f",
-    "--format",
-    "output_format",
-    type=click.Choice(["text", "md"], case_sensitive=False),
-    default="text",
-    show_default=True,
-    help="Output format when writing to a file (text or markdown)",
-)
-@click.option(
-    "--color/--no-color",
-    "color",
-    is_flag=True,
-    default=None,
-    help="Keep ANSI colour codes in the file output (text format only)",
+    help="Show the details of failed crates",
 )
 @click.pass_context
 def sessions_show(
@@ -118,12 +97,9 @@ def sessions_show(
     session_id: str | None = None,
     stats: bool = False,
     verbose: bool = False,
-    output_file: Path | None = None,
-    output_format: str = "text",
-    color: bool | None = None,
 ):
     """
-    Show the recorded output of a stored validation session.
+    Show the recorded output of a stored validation session on the console.
 
     Pass a session ID (the short ID shown by `sessions list` is enough), or run
     without arguments in interactive mode to pick one from a menu. The session
@@ -131,17 +107,13 @@ def sessions_show(
     re-validating anything; add --stats for the textual statistics and -v for
     the details of the failed crates.
 
-    Use --output-file to write the statistics to a file instead of the console.
-    Supported formats are ``text`` (plain or ANSI-coloured) and ``md`` (markdown).
-    Sessions holding a single crate get a dedicated per-crate report instead of
-    the batch statistics; with -v it includes every recorded issue message.
+    To write a complete report to a file (text, markdown or CSV), use
+    `sessions report`.
     """
     console = ctx.obj["console"]
     interactive = ctx.obj.get("interactive", False)
     if not session_id and not interactive:
         raise click.UsageError("Specify a session ID (run `sessions list` to see the available sessions).")
-    if output_file and not stats:
-        raise click.UsageError("--output-file requires --stats.")
     try:
         summaries = _collect_sessions()
         target = _select_session(console, summaries, session_id)
@@ -152,8 +124,80 @@ def sessions_show(
             Path(target["file"]),
             stats=stats,
             verbose=verbose,
+        )
+    except Exception as e:
+        handle_error(e, console)
+
+
+@sessions.command("report")
+@click.argument("session_id", required=False)
+@click.option(
+    "-o",
+    "--output-file",
+    type=click.Path(dir_okay=False, writable=True, path_type=Path),
+    default=None,
+    help="Write the report to a file instead of stdout",
+)
+@click.option(
+    "-f",
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "md", "csv"], case_sensitive=False),
+    default="text",
+    show_default=True,
+    help="Report format: text, markdown, or csv (raw data, one row per issue)",
+)
+@click.option(
+    "-v",
+    "--verbose",
+    is_flag=True,
+    default=False,
+    help="Include the recorded issue messages in the report (text and md formats)",
+)
+@click.option(
+    "--color/--no-color",
+    "color",
+    is_flag=True,
+    default=None,
+    help="Keep ANSI colour codes when writing the text format to a file",
+)
+@click.pass_context
+def sessions_report(
+    ctx,
+    session_id: str | None = None,
+    output_file: Path | None = None,
+    output_format: str = "text",
+    verbose: bool = False,
+    color: bool | None = None,
+):
+    """
+    Generate a complete report of a stored validation session.
+
+    The report is rendered from what was saved — nothing is re-validated — and
+    goes to stdout, or to a file with -o. Supported formats: ``text`` (plain or
+    ANSI-coloured), ``md`` (markdown: summary, statistics and an issue-type
+    reference appendix every check identifier links to) and ``csv`` (the raw
+    session data for external analysis tools, one row per reported issue with
+    the crate fields repeated).
+
+    Sessions holding a single crate get a dedicated per-crate report instead
+    of the batch statistics. Add -v to include every recorded issue message.
+    """
+    console = ctx.obj["console"]
+    interactive = ctx.obj.get("interactive", False)
+    if not session_id and not interactive:
+        raise click.UsageError("Specify a session ID (run `sessions list` to see the available sessions).")
+    try:
+        summaries = _collect_sessions()
+        target = _select_session(console, summaries, session_id, prompt="Select a session to report:")
+        if target is None:
+            return
+        _write_session_report(
+            console,
+            Path(target["file"]),
             output_file=output_file,
-            output_format=output_format,
+            output_format=output_format.lower(),
+            verbose=verbose,
             color=color,
         )
     except Exception as e:
@@ -195,9 +239,6 @@ def _show_session(
     *,
     stats: bool = False,
     verbose: bool = False,
-    output_file: Path | None = None,
-    output_format: str = "text",
-    color: bool | None = None,
 ) -> None:
     """Render the header and summary table of a stored session (optionally stats)."""
     session = BatchSession.load(session_file)
@@ -223,21 +264,10 @@ def _show_session(
     result = BatchValidationResult(session)
     BatchValidationCommandView(console=console).show_summary(result, verbose=verbose)
 
-    crate_dicts = [e.to_dict() for e in entries]
     if stats:
-        if output_file:
-            _write_stats_to_file(
-                crate_dicts,
-                output_file=output_file,
-                output_format=output_format,
-                color=color,
-                verbose=verbose,
-            )
-            console.print(f"[dim]Statistics written to[/dim] {output_file}")
-        else:
-            # The issue details are not repeated here: with -v they are already
-            # rendered by the summary above (verbose failed-crate details).
-            render_statistics(console, crate_dicts)
+        # The issue details are not repeated here: with -v they are already
+        # rendered by the summary above (verbose failed-crate details).
+        render_statistics(console, [e.to_dict() for e in entries])
 
     if session.is_completed():
         render_batch_footer(console, result, [])
@@ -249,29 +279,93 @@ def _show_session(
         )
 
 
-def _write_stats_to_file(
-    crate_dicts: list[dict],
+def _write_session_report(
+    console,
+    session_file: Path,
     *,
-    output_file: Path,
+    output_file: Path | None,
     output_format: str,
-    color: bool | None = None,
     verbose: bool = False,
+    color: bool | None = None,
 ) -> None:
-    """Write batch statistics to a file in the requested format."""
-    if output_format == "md":
+    """Write the complete report of a stored session to ``output_file`` or stdout."""
+    session = BatchSession.load(session_file)
+    crate_dicts = [e.to_dict() for e in session.crates]
+
+    if output_format == "csv":
+        if output_file:
+            # ``utf-8-sig`` so spreadsheet tools (Excel) detect the encoding;
+            # the BOM is skipped when the report goes to stdout.
+            with output_file.open("w", encoding="utf-8-sig", newline="") as f:
+                write_report_csv(f, crate_dicts)
+        else:
+            write_report_csv(sys.stdout, crate_dicts)
+    elif output_format == "md":
+        header_rows = _report_header_rows(session, session_file)
+        if output_file:
+            with output_file.open("w", encoding="utf-8") as f:
+                render_report_md(f, crate_dicts, header_rows=header_rows, verbose=verbose)
+        else:
+            render_report_md(sys.stdout, crate_dicts, header_rows=header_rows, verbose=verbose)
+    elif output_file:
         with output_file.open("w", encoding="utf-8") as f:
-            render_statistics_md(f, crate_dicts, verbose=verbose)
-    else:
-        with output_file.open("w", encoding="utf-8") as f:
-            no_color = not color if color is not None else True
             kwargs: dict = {"file": f}
-            if no_color:
-                kwargs["color_system"] = None
-            else:
-                kwargs["color_system"] = "standard"
-            out = Console(**kwargs)
-            render_statistics(out, crate_dicts, verbose=verbose)
-            render_issue_reference(out, crate_dicts)
+            # Files default to plain text; --color keeps the ANSI codes.
+            kwargs["color_system"] = "standard" if color else None
+            _render_text_report(Console(**kwargs), session, session_file, verbose=verbose)
+    else:
+        _render_text_report(console, session, session_file, verbose=verbose)
+
+    if output_file:
+        console.print(f"[dim]Report written to[/dim] {output_file}")
+
+
+def _report_header_rows(session: BatchSession, session_file: Path) -> list[tuple[str, str]]:
+    """The ``(label, value)`` header bullets of the markdown report."""
+    base = _common_base([c.path for c in session.crates])
+    profiles, _ = format_profile_selection(session.profile_identifiers, session.no_auto_profile)
+    rows: list[tuple[str, str]] = [("Session", f"`{session_file}`")]
+    if base:
+        rows.append(("Input", f"`{base}`"))
+    rows.append(("Profiles", profiles))
+    rows.append(("Status", session.status))
+    return rows
+
+
+def _render_text_report(console, session: BatchSession, session_file: Path, *, verbose: bool = False) -> None:
+    """
+    Render the complete text report of a session to ``console`` (a terminal or
+    a file-backed console): header, per-crate summary, statistics — or the
+    dedicated per-crate report for single-crate sessions — and the issue-type
+    appendix.
+    """
+    entries = session.crates
+    crate_dicts = [e.to_dict() for e in entries]
+    base = _common_base([e.path for e in entries])
+
+    profiles, profiles_style = format_profile_selection(session.profile_identifiers, session.no_auto_profile)
+    rows: list[tuple[str, str, str]] = [("Session", str(session_file), "cyan")]
+    if base:
+        rows.append(("Input", base, "cyan"))
+    rows.append(("Profiles", profiles, profiles_style))
+    render_batch_header(
+        console,
+        headline=f"[bold]Validation Report[/bold] [dim]·[/dim] [cyan]{len(entries)}[/cyan] RO-Crate(s)",
+        rows=rows,
+        status=session.status,
+    )
+
+    if len(entries) > 1:
+        # Batch: summary table (with the failed-crate details when verbose),
+        # then the statistics.
+        result = BatchValidationResult(session)
+        BatchValidationCommandView(console=console).show_summary(result, verbose=verbose)
+        render_statistics(console, crate_dicts)
+    else:
+        # Single crate: the dedicated per-crate report (with the issue
+        # messages when verbose) replaces summary and statistics.
+        render_statistics(console, crate_dicts, verbose=verbose)
+    render_issue_reference(console, crate_dicts)
 
 
 @sessions.command("resume")

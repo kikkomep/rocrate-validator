@@ -1190,8 +1190,8 @@ def test_sessions_show_stats(cli_runner: CliRunner, isolated_sessions_dir):
     assert "Outcome Summary" in result.output
 
 
-def test_sessions_show_output_file_requires_stats(cli_runner: CliRunner, isolated_sessions_dir):
-    """--output-file without --stats should raise a usage error."""
+def test_sessions_show_no_longer_writes_files(cli_runner: CliRunner, isolated_sessions_dir):
+    """`show` is console-only: the file options moved to `sessions report`."""
     _write_fake_session(
         isolated_sessions_dir,
         "s1",
@@ -1203,12 +1203,18 @@ def test_sessions_show_output_file_requires_stats(cli_runner: CliRunner, isolate
     )
     result = cli_runner.invoke(cli, ["--no-interactive", "sessions", "show", "s1", "-o", "/tmp/out.txt"])
     assert result.exit_code != 0
-    assert "requires --stats" in result.output
+    assert "no such option" in result.output.lower()
 
 
-def test_sessions_show_stats_output_file_text(cli_runner: CliRunner, isolated_sessions_dir, tmp_path):
-    """Write statistics in text format (default, no colour) to a file."""
-    output_file = tmp_path / "stats.txt"
+def test_sessions_report_requires_id_non_interactive(cli_runner: CliRunner, isolated_sessions_dir):
+    result = cli_runner.invoke(cli, ["--no-interactive", "sessions", "report"])
+    assert result.exit_code != 0
+    assert "session ID" in result.output
+
+
+def test_sessions_report_output_file_text(cli_runner: CliRunner, isolated_sessions_dir, tmp_path):
+    """Write the report in text format (default, no colour) to a file."""
+    output_file = tmp_path / "report.txt"
     _write_fake_session(
         isolated_sessions_dir,
         "s1",
@@ -1218,19 +1224,21 @@ def test_sessions_show_stats_output_file_text(cli_runner: CliRunner, isolated_se
         failed=0,
         paths=["/a/x", "/a/y"],
     )
-    result = cli_runner.invoke(cli, ["--no-interactive", "sessions", "show", "s1", "--stats", "-o", str(output_file)])
+    result = cli_runner.invoke(cli, ["--no-interactive", "sessions", "report", "s1", "-o", str(output_file)])
     assert result.exit_code == 0, result.output
-    assert "Statistics written to" in result.output
+    assert "Report written to" in result.output
     content = output_file.read_text()
+    assert "Validation Report" in content
+    assert "Validation Summary" in content
     assert "Statistics" in content
     assert "Outcome Summary" in content
     # No ANSI colour codes in default text output.
     assert "\x1b[" not in content
 
 
-def test_sessions_show_stats_output_file_text_with_color(cli_runner: CliRunner, isolated_sessions_dir, tmp_path):
-    """Write statistics in text format with ANSI colour codes."""
-    output_file = tmp_path / "stats_color.txt"
+def test_sessions_report_output_file_text_with_color(cli_runner: CliRunner, isolated_sessions_dir, tmp_path):
+    """Write the report in text format with ANSI colour codes."""
+    output_file = tmp_path / "report_color.txt"
     _write_fake_session(
         isolated_sessions_dir,
         "s1",
@@ -1240,9 +1248,7 @@ def test_sessions_show_stats_output_file_text_with_color(cli_runner: CliRunner, 
         failed=0,
         paths=["/a/x", "/a/y"],
     )
-    result = cli_runner.invoke(
-        cli, ["--no-interactive", "sessions", "show", "s1", "--stats", "-o", str(output_file), "--color"]
-    )
+    result = cli_runner.invoke(cli, ["--no-interactive", "sessions", "report", "s1", "-o", str(output_file), "--color"])
     assert result.exit_code == 0, result.output
     content = output_file.read_text()
     assert "Statistics" in content
@@ -1250,9 +1256,9 @@ def test_sessions_show_stats_output_file_text_with_color(cli_runner: CliRunner, 
     assert "\x1b[" in content
 
 
-def test_sessions_show_stats_output_file_md(cli_runner: CliRunner, isolated_sessions_dir, tmp_path):
-    """Write statistics in markdown format to a file."""
-    output_file = tmp_path / "stats.md"
+def test_sessions_report_output_file_md(cli_runner: CliRunner, isolated_sessions_dir, tmp_path):
+    """Write the report in markdown format to a file."""
+    output_file = tmp_path / "report.md"
     _write_fake_session(
         isolated_sessions_dir,
         "s1",
@@ -1263,15 +1269,38 @@ def test_sessions_show_stats_output_file_md(cli_runner: CliRunner, isolated_sess
         paths=["/a/x", "/a/y"],
     )
     result = cli_runner.invoke(
-        cli, ["--no-interactive", "sessions", "show", "s1", "--stats", "-o", str(output_file), "-f", "md"]
+        cli, ["--no-interactive", "sessions", "report", "s1", "-o", str(output_file), "-f", "md"]
     )
     assert result.exit_code == 0, result.output
     content = output_file.read_text()
-    assert "# Validation Statistics" in content
+    assert "# Validation Report" in content
+    # Header bullets carry the session provenance.
+    assert "- **Session:**" in content
+    assert "- **Profiles:** ro-crate-1.1" in content
+    # Per-crate summary table before the statistics sections.
+    assert "## Validation Summary" in content
+    assert "| Crate | Status | Checks | Passed | Issues | Duration |" in content
     assert "## Outcome Summary" in content
     assert "| Status | Crates | Share |" in content
     assert "| **TOTAL**" in content
     assert "## Checks/Passed Combinations" in content
+
+
+def test_sessions_report_stdout(cli_runner: CliRunner, isolated_sessions_dir):
+    """Without -o the report goes to stdout (pipeable)."""
+    _write_fake_session(
+        isolated_sessions_dir,
+        "s1",
+        status="completed",
+        total=2,
+        completed=2,
+        failed=0,
+        paths=["/a/x", "/a/y"],
+    )
+    result = cli_runner.invoke(cli, ["--no-interactive", "sessions", "report", "s1", "-f", "md"])
+    assert result.exit_code == 0, result.output
+    assert "# Validation Report" in result.output
+    assert "## Validation Summary" in result.output
 
 
 def _write_session_with_failures(sessions_dir, name: str = "s1") -> None:
@@ -1338,8 +1367,8 @@ def _write_session_with_failures(sessions_dir, name: str = "s1") -> None:
                 "passed": False,
                 "profiles": ["ro-crate-1.1"],
                 "issues": [
-                    {"severity": "REQUIRED", "check": check_alpha},
-                    {"severity": "OPTIONAL", "check": check_beta},
+                    {"severity": "REQUIRED", "message": "The root MUST have a name", "check": check_alpha},
+                    {"severity": "OPTIONAL", "message": "The licence SHOULD be a URI", "check": check_beta},
                 ],
                 "statistics": {"total_checks": 5, "total_passed_checks": 3},
             },
@@ -1358,13 +1387,13 @@ def _write_session_with_failures(sessions_dir, name: str = "s1") -> None:
     (sessions_dir / f"{name}.json").write_text(json.dumps(data), encoding="utf-8")
 
 
-def test_sessions_show_stats_output_file_md_with_failures(cli_runner: CliRunner, isolated_sessions_dir, tmp_path):
-    """Write statistics in markdown format for a session with failures."""
-    output_file = tmp_path / "stats_fail.md"
+def test_sessions_report_md_with_failures(cli_runner: CliRunner, isolated_sessions_dir, tmp_path):
+    """Write the markdown report for a session with failures."""
+    output_file = tmp_path / "report_fail.md"
     _write_session_with_failures(isolated_sessions_dir)
 
     result = cli_runner.invoke(
-        cli, ["--no-interactive", "sessions", "show", "s1", "--stats", "-o", str(output_file), "-f", "md"]
+        cli, ["--no-interactive", "sessions", "report", "s1", "-o", str(output_file), "-f", "md"]
     )
     assert result.exit_code == 0, result.output
     content = output_file.read_text()
@@ -1382,14 +1411,26 @@ def test_sessions_show_stats_output_file_md_with_failures(cli_runner: CliRunner,
     assert "**Severity:** REQUIRED" in content
     assert "Alpha checks the root data entity." in content
     assert "Requirement One constrains the root." in content
+    # The issue messages only appear in the verbose report.
+    assert "## Failed Crate Details" not in content
+
+    result = cli_runner.invoke(
+        cli, ["--no-interactive", "sessions", "report", "s1", "-o", str(output_file), "-f", "md", "-v"]
+    )
+    assert result.exit_code == 0, result.output
+    content = output_file.read_text()
+    assert "## Failed Crate Details" in content
+    assert "### failed1" in content
+    assert "The root MUST have a name" in content
+    assert "The licence SHOULD be a URI" in content
 
 
-def test_sessions_show_stats_output_file_text_appendix(cli_runner: CliRunner, isolated_sessions_dir, tmp_path):
-    """The text file report also ends with the issue-type reference appendix."""
-    output_file = tmp_path / "stats_fail.txt"
+def test_sessions_report_text_appendix(cli_runner: CliRunner, isolated_sessions_dir, tmp_path):
+    """The text report also ends with the issue-type reference appendix."""
+    output_file = tmp_path / "report_fail.txt"
     _write_session_with_failures(isolated_sessions_dir)
 
-    result = cli_runner.invoke(cli, ["--no-interactive", "sessions", "show", "s1", "--stats", "-o", str(output_file)])
+    result = cli_runner.invoke(cli, ["--no-interactive", "sessions", "report", "s1", "-o", str(output_file)])
     assert result.exit_code == 0, result.output
     content = output_file.read_text()
     assert "Appendix: Issue Type Reference" in content
@@ -1399,6 +1440,43 @@ def test_sessions_show_stats_output_file_text_appendix(cli_runner: CliRunner, is
     assert "Alpha checks the root data entity." in content
     assert "req-02" in content
     assert "Requirement Two constrains the licence." in content
+
+
+def test_sessions_report_csv(cli_runner: CliRunner, isolated_sessions_dir, tmp_path):
+    """The csv format exports the raw session data, one row per issue."""
+    import csv as _csv
+
+    output_file = tmp_path / "report.csv"
+    _write_session_with_failures(isolated_sessions_dir)
+
+    result = cli_runner.invoke(
+        cli, ["--no-interactive", "sessions", "report", "s1", "-o", str(output_file), "-f", "csv"]
+    )
+    assert result.exit_code == 0, result.output
+    with output_file.open(encoding="utf-8-sig", newline="") as f:
+        rows = list(_csv.DictReader(f))
+
+    # 2 passed crates (1 row each, empty issue columns) + failed1 (2 issues) +
+    # failed2 (1 issue) = 5 data rows covering the whole corpus.
+    assert len(rows) == 5
+    by_crate: dict[str, list[dict]] = {}
+    for row in rows:
+        by_crate.setdefault(row["crate"], []).append(row)
+    assert len(by_crate["passed1"]) == 1
+    assert by_crate["passed1"][0]["status"] == "PASSED"
+    assert by_crate["passed1"][0]["check_identifier"] == ""
+    assert len(by_crate["failed1"]) == 2
+
+    issue_row = next(r for r in by_crate["failed1"] if r["check_identifier"] == "check-01")
+    assert issue_row["status"] == "FAILED"
+    assert issue_row["issue_severity"] == "REQUIRED"
+    assert issue_row["check_name"] == "Check Alpha"
+    assert issue_row["check_severity"] == "REQUIRED"
+    assert issue_row["requirement_identifier"] == "req-01"
+    assert issue_row["profiles"] == "ro-crate-1.1"
+    assert issue_row["total_checks"] == "5"
+    # The crates all sit directly under the common root: no source grouping.
+    assert issue_row["source"] == ""
 
 
 def _write_single_crate_session(sessions_dir, name: str = "s1", outcome: str = "failed") -> None:
@@ -1466,13 +1544,13 @@ def _write_single_crate_session(sessions_dir, name: str = "s1", outcome: str = "
     (sessions_dir / f"{name}.json").write_text(json.dumps(data), encoding="utf-8")
 
 
-def test_sessions_show_stats_single_crate_md(cli_runner: CliRunner, isolated_sessions_dir, tmp_path):
+def test_sessions_report_single_crate_md(cli_runner: CliRunner, isolated_sessions_dir, tmp_path):
     """A single-crate session gets the dedicated report, not the batch statistics."""
     output_file = tmp_path / "single.md"
     _write_single_crate_session(isolated_sessions_dir)
 
     result = cli_runner.invoke(
-        cli, ["--no-interactive", "sessions", "show", "s1", "--stats", "-o", str(output_file), "-f", "md"]
+        cli, ["--no-interactive", "sessions", "report", "s1", "-o", str(output_file), "-f", "md"]
     )
     assert result.exit_code == 0, result.output
     content = output_file.read_text()
@@ -1493,7 +1571,7 @@ def test_sessions_show_stats_single_crate_md(cli_runner: CliRunner, isolated_ses
     assert "## Issue Details" not in content
 
     result = cli_runner.invoke(
-        cli, ["--no-interactive", "sessions", "show", "s1", "--stats", "-v", "-o", str(output_file), "-f", "md"]
+        cli, ["--no-interactive", "sessions", "report", "s1", "-v", "-o", str(output_file), "-f", "md"]
     )
     assert result.exit_code == 0, result.output
     content = output_file.read_text()
@@ -1502,14 +1580,12 @@ def test_sessions_show_stats_single_crate_md(cli_runner: CliRunner, isolated_ses
     assert "entity: ./ · property: http://schema.org/name" in content
 
 
-def test_sessions_show_stats_single_crate_text(cli_runner: CliRunner, isolated_sessions_dir, tmp_path):
+def test_sessions_report_single_crate_text(cli_runner: CliRunner, isolated_sessions_dir, tmp_path):
     """The text single-crate report mirrors the markdown one."""
     output_file = tmp_path / "single.txt"
     _write_single_crate_session(isolated_sessions_dir)
 
-    result = cli_runner.invoke(
-        cli, ["--no-interactive", "sessions", "show", "s1", "--stats", "-v", "-o", str(output_file)]
-    )
+    result = cli_runner.invoke(cli, ["--no-interactive", "sessions", "report", "s1", "-v", "-o", str(output_file)])
     assert result.exit_code == 0, result.output
     content = output_file.read_text()
     assert "Validation Report" in content
@@ -1521,12 +1597,12 @@ def test_sessions_show_stats_single_crate_text(cli_runner: CliRunner, isolated_s
     assert "Outcome Summary" not in content
 
 
-def test_sessions_show_stats_single_crate_passed_and_error(cli_runner: CliRunner, isolated_sessions_dir, tmp_path):
+def test_sessions_report_single_crate_passed_and_error(cli_runner: CliRunner, isolated_sessions_dir, tmp_path):
     """Passed and errored single-crate sessions render their degenerate cases."""
     _write_single_crate_session(isolated_sessions_dir, name="ok1", outcome="passed")
     output_file = tmp_path / "single_ok.md"
     result = cli_runner.invoke(
-        cli, ["--no-interactive", "sessions", "show", "ok1", "--stats", "-o", str(output_file), "-f", "md"]
+        cli, ["--no-interactive", "sessions", "report", "ok1", "-o", str(output_file), "-f", "md"]
     )
     assert result.exit_code == 0, result.output
     content = output_file.read_text()
@@ -1537,7 +1613,7 @@ def test_sessions_show_stats_single_crate_passed_and_error(cli_runner: CliRunner
     _write_single_crate_session(isolated_sessions_dir, name="err1", outcome="error")
     output_file = tmp_path / "single_err.md"
     result = cli_runner.invoke(
-        cli, ["--no-interactive", "sessions", "show", "err1", "--stats", "-o", str(output_file), "-f", "md"]
+        cli, ["--no-interactive", "sessions", "report", "err1", "-o", str(output_file), "-f", "md"]
     )
     assert result.exit_code == 0, result.output
     content = output_file.read_text()

@@ -916,21 +916,25 @@ def _md_describe_lines(values: list[float], *, unit: str = "") -> str:
     return "\n".join(lines) + "\n"
 
 
-def render_statistics_md(
+def render_report_md(
     file,
     crate_dicts: list[dict],
     *,
+    header_rows: list[tuple[str, str]] | None = None,
     include_errors: bool = True,
     top_n: int = 10,
     outlier_threshold: int = 5,
     verbose: bool = False,
 ) -> None:
     """
-    Write batch statistics to *file* in markdown format.
+    Write the complete markdown report of a validation session to *file*:
+    header, per-crate summary, batch statistics, the per-crate issue details
+    (``verbose`` only) and the issue-type appendix.
 
     A session holding a single crate gets a dedicated per-crate report instead
     of the batch statistics; ``verbose`` extends it with the individual issue
-    messages.
+    messages. ``header_rows`` are ``(label, value)`` pairs rendered as a bullet
+    list under the title (session file, input, profiles, ...).
     """
     all_crates = [normalise_crate(c) for c in crate_dicts]
     crates = select(all_crates, include_errors=include_errors)
@@ -944,7 +948,12 @@ def render_statistics_md(
         _md_write_issue_reference(w, failed)
         return
 
-    w("# Validation Statistics\n\n")
+    w("# Validation Report\n\n")
+    for label, value in header_rows or []:
+        w(f"- **{label}:** {value}\n")
+    if header_rows:
+        w("\n")
+    _md_write_summary_table(w, crates)
     _md_write_summary_line(w, crates, errored)
     _md_write_outcome_summary(w, crates, failed, errored)
     _md_write_issues_per_crate(w, failed)
@@ -954,7 +963,60 @@ def render_statistics_md(
     _md_write_issue_attribution(w, failed)
     _md_write_slowest(w, failed, top_n)
     _md_write_outliers(w, failed, outlier_threshold)
+    if verbose:
+        _md_write_crate_details(w, failed)
     _md_write_issue_reference(w, failed)
+
+
+def _md_write_summary_table(w, crates: list[dict]) -> None:
+    """
+    The per-crate summary table of the report (the markdown counterpart of the
+    console "Validation Summary"). The Source column appears only when the
+    crates come from different collections, like in the console table.
+    """
+    w("## Validation Summary\n\n")
+    common_prefix = common_path_prefix([c["path"] for c in crates])
+    sources = [source_below(c["path"], common_prefix) for c in crates]
+    show_source = len(set(sources)) > 1
+    headers = (["Source"] if show_source else []) + ["Crate", "Status", "Checks", "Passed", "Issues", "Duration"]
+    rows: list[list[str]] = []
+    for crate, source in zip(crates, sources, strict=True):
+        errored = crate["status"] == "ERROR"
+        cells = [source or "—"] if show_source else []
+        cells += [
+            crate["name"],
+            crate["status"],
+            "" if errored else str(crate["checks"]),
+            "" if errored else str(crate["passed_checks"]),
+            str(crate["n_issues"]),
+            f"{crate['duration']:.2f}s" if crate["duration"] is not None else "—",
+        ]
+        rows.append(cells)
+    w(_md_table(headers, rows, align_left=[0, 1] if show_source else [0]))
+    w("\n")
+
+
+def _md_write_crate_details(w, failed: list[dict]) -> None:
+    """
+    The recorded issues of every failed crate, grouped by check — the verbose
+    section that makes the markdown report self-contained.
+    """
+    if not failed:
+        return
+    w("## Failed Crate Details\n\n")
+    for crate in failed:
+        w(f"### {crate['name']}\n\n")
+        w(f"`{crate['path']}` — **{crate['n_issues']}** issue(s)\n\n")
+        for entry in issues_per_check(crate):
+            title = _md_check_link(entry["identifier"]) + (f" — {entry['name']}" if entry["name"] else "")
+            severity = f" *({entry['severity']})*" if entry["severity"] else ""
+            w(f"**{title}**{severity}\n\n")
+            for issue in entry["issues"]:
+                w(f"- {_issue_message(issue)}\n")
+                context = _issue_context(issue)
+                if context:
+                    w(f"  <br>*{context}*\n")
+            w("\n")
 
 
 def _md_write_single_crate(w, crate: dict, verbose: bool = False) -> None:
