@@ -14,7 +14,6 @@
 
 from __future__ import annotations
 
-import csv
 import sys
 import time
 from contextlib import nullcontext
@@ -47,6 +46,7 @@ from rocrate_validator.models import (
 from rocrate_validator.utils import log as logging
 from rocrate_validator.utils.io_helpers.input import get_single_char, multiple_choice
 from rocrate_validator.utils.io_helpers.output.console import Console
+from rocrate_validator.utils.io_helpers.output.csv_report import write_report_csv
 from rocrate_validator.utils.io_helpers.output.json import JSONOutputFormatter
 from rocrate_validator.utils.io_helpers.output.text import TextOutputFormatter
 from rocrate_validator.utils.io_helpers.output.text.layout.report import LiveTextProgressLayout, get_app_header_rule
@@ -854,12 +854,17 @@ def _write_batch_report(
             out.print(batch_result)
         return
 
-    if output_format == "csv":
-        with output_file.open("w", encoding="utf-8", newline="") if output_file else nullcontext(sys.stdout) as f:
-            _write_batch_csv(batch_result, f)
-        return
-
     crate_dicts = [entry.to_dict() for entry in batch_result.crates]
+
+    if output_format == "csv":
+        # ``utf-8-sig`` so spreadsheet tools (Excel) detect the encoding; the
+        # BOM is skipped when the report goes to stdout.
+        if output_file:
+            with output_file.open("w", encoding="utf-8-sig", newline="") as f:
+                write_report_csv(f, crate_dicts)
+        else:
+            write_report_csv(sys.stdout, crate_dicts)
+        return
     if output_file:
         with output_file.open("w", encoding="utf-8") as f:
             out = Console(color_system=None, width=output_line_width, file=f)
@@ -875,44 +880,6 @@ def _write_batch_report(
         batch_view.show_summary(batch_result, verbose=verbose)
         if stats:
             render_statistics(batch_view.console, crate_dicts)
-
-
-def _write_batch_csv(batch_result: BatchValidationResult, file) -> None:
-    """Write the batch result as CSV (one row per crate) to an open text file."""
-    writer = csv.writer(file)
-    writer.writerow(
-        [
-            "source",
-            "crate",
-            "path",
-            "profiles",
-            "size_bytes",
-            "status",
-            "total_checks",
-            "passed_checks",
-            "issues",
-            "duration",
-            "error",
-        ]
-    )
-    for entry in batch_result.crates:
-        stats = entry.statistics or {}
-        path = Path(entry.path)
-        writer.writerow(
-            [
-                path.parent.name,
-                path.name,
-                entry.path,
-                ";".join(entry.profiles or []),
-                entry.size_bytes if entry.size_bytes is not None else "",
-                "passed" if entry.passed else "failed",
-                stats.get("total_checks", ""),
-                stats.get("total_passed_checks", ""),
-                len(entry.issues or []),
-                f"{entry.duration:.3f}" if entry.duration is not None else "",
-                entry.error or "",
-            ]
-        )
 
 
 def _print_batch_header(

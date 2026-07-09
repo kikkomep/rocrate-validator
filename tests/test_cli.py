@@ -878,16 +878,16 @@ def test_batch_validate_csv_output(cli_runner: CliRunner, tmp_path):
     )
     assert result.exit_code == 0, result.output
     assert output_file.exists()
-    rows = output_file.read_text().splitlines()
-    assert rows[0].startswith(
-        "source,crate,path,profiles,size_bytes,status,total_checks,passed_checks,issues,duration,error"
-    )
+    # utf-8-sig: spreadsheet tools detect the encoding from the BOM.
+    rows = output_file.read_text(encoding="utf-8-sig").splitlines()
+    assert rows[0].startswith("source,crate,path,profiles,status,error,size_bytes,duration_s")
+    assert "issue_severity,message" in rows[0]
     # The profile used is recorded in the CSV row.
     assert ",ro-crate-1.1," in rows[1]
-    # At least one data row for the validated crate, reported as passed.
-    assert len(rows) >= 2
+    # One data row for the validated (passed, issue-less) crate.
+    assert len(rows) == 2
     assert "wrroc-paper-long-date" in rows[1]
-    assert ",passed," in rows[1]
+    assert ",PASSED," in rows[1]
 
 
 def test_batch_validate_csv_rejected_in_single_mode(cli_runner: CliRunner):
