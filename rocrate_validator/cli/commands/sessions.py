@@ -58,6 +58,32 @@ logger = logging.getLogger(__name__)
 _RESUMABLE_STATUSES = ("in_progress", "interrupted")
 
 
+def _check_id_or_last(session_id: str | None, last: bool, interactive: bool) -> None:
+    """Shared usage-error triage for the subcommands taking a session ID or --last."""
+    if session_id and last:
+        raise click.UsageError("Pass either a session ID or --last, not both.")
+    if not session_id and not last and not interactive:
+        raise click.UsageError(
+            "Specify a session ID or use --last (run `sessions list` to see the available sessions)."
+        )
+
+
+def _most_recent_session(console, summaries: list[dict], statuses: tuple[str, ...] | None = None) -> dict | None:
+    """
+    The most recently updated session — optionally restricted to the given
+    statuses — or ``None`` after printing why (``_collect_sessions`` returns
+    the summaries sorted by update time, most recent first).
+    """
+    candidates = [s for s in summaries if statuses is None or s["status"] in statuses]
+    if not candidates:
+        if statuses:
+            console.print("[yellow]No resumable (interrupted) sessions found.[/yellow]")
+        else:
+            console.print("[yellow]No validation sessions stored.[/yellow]")
+        return None
+    return candidates[0]
+
+
 @cli.group("sessions")
 @click.pass_context
 def sessions(ctx):  # pylint: disable=unused-argument
@@ -79,6 +105,13 @@ def sessions_path(ctx):
 @sessions.command("show")
 @click.argument("session_id", required=False)
 @click.option(
+    "--last",
+    "last",
+    is_flag=True,
+    default=False,
+    help="Show the most recently updated session (no ID needed)",
+)
+@click.option(
     "--stats",
     "--statistics",
     "stats",
@@ -97,28 +130,29 @@ def sessions_path(ctx):
 def sessions_show(
     ctx,
     session_id: str | None = None,
+    last: bool = False,
     stats: bool = False,
     verbose: bool = False,
 ):
     """
     Show the recorded output of a stored validation session on the console.
 
-    Pass a session ID (the short ID shown by `sessions list` is enough), or run
-    without arguments in interactive mode to pick one from a menu. The session
-    header and the summary table are rendered from what was saved, without
-    re-validating anything; add --stats for the textual statistics and -v for
-    the details of the failed crates.
+    Pass a session ID (the short ID shown by `sessions list` is enough), use
+    --last for the most recently updated session, or run without arguments in
+    interactive mode to pick one from a menu. The session header and the
+    summary table are rendered from what was saved, without re-validating
+    anything; add --stats for the textual statistics and -v for the details
+    of the failed crates.
 
     To write a complete report to a file (text, markdown or CSV), use
     `sessions report`.
     """
     console = ctx.obj["console"]
     interactive = ctx.obj.get("interactive", False)
-    if not session_id and not interactive:
-        raise click.UsageError("Specify a session ID (run `sessions list` to see the available sessions).")
+    _check_id_or_last(session_id, last, interactive)
     try:
         summaries = _collect_sessions()
-        target = _select_session(console, summaries, session_id)
+        target = _most_recent_session(console, summaries) if last else _select_session(console, summaries, session_id)
         if target is None:
             return
         _show_session(
@@ -197,20 +231,11 @@ def sessions_report(
     """
     console = ctx.obj["console"]
     interactive = ctx.obj.get("interactive", False)
-    if session_id and last:
-        raise click.UsageError("Pass either a session ID or --last, not both.")
-    if not session_id and not last and not interactive:
-        raise click.UsageError(
-            "Specify a session ID or use --last (run `sessions list` to see the available sessions)."
-        )
+    _check_id_or_last(session_id, last, interactive)
     try:
         summaries = _collect_sessions()
         if last:
-            # _collect_sessions sorts by update time, most recent first.
-            target = summaries[0] if summaries else None
-            if target is None:
-                console.print("[yellow]No validation sessions stored.[/yellow]")
-                return
+            target = _most_recent_session(console, summaries)
         else:
             target = _select_session(console, summaries, session_id, prompt="Select a session to report:")
         if target is None:
@@ -394,6 +419,13 @@ def _render_text_report(console, session: BatchSession, session_file: Path, *, v
 @sessions.command("resume")
 @click.argument("session_id", required=False)
 @click.option(
+    "--last",
+    "last",
+    is_flag=True,
+    default=False,
+    help="Resume the most recently interrupted session (no ID needed)",
+)
+@click.option(
     "-v",
     "--verbose",
     is_flag=True,
@@ -401,25 +433,28 @@ def _render_text_report(console, session: BatchSession, session_file: Path, *, v
     help="Show the details of failed crates after resuming",
 )
 @click.pass_context
-def sessions_resume(ctx, session_id: str | None = None, verbose: bool = False):
+def sessions_resume(ctx, session_id: str | None = None, last: bool = False, verbose: bool = False):
     """
     Resume an interrupted validation session.
 
-    Pass a session ID (the short ID shown by `sessions list` is enough) to resume
-    that session, or run without arguments in interactive mode to pick one from a
-    menu of the still-open sessions. Validation continues from where it stopped.
+    Pass a session ID (the short ID shown by `sessions list` is enough) to
+    resume that session, use --last for the most recently interrupted one, or
+    run without arguments in interactive mode to pick one from a menu of the
+    still-open sessions. Validation continues from where it stopped.
     """
     console = ctx.obj["console"]
     interactive = ctx.obj.get("interactive", False)
-    # Without an ID there is nothing to pick from in non-interactive mode: raise
-    # the usage error before the try/except so Click reports it natively.
-    if not session_id and not interactive:
-        raise click.UsageError("Specify a session ID (run `sessions list` to see the available sessions).")
+    # The usage errors are raised before the try/except so Click reports them
+    # natively.
+    _check_id_or_last(session_id, last, interactive)
 
     exit_code = 0
     try:
         summaries = _collect_sessions()
-        target = _select_resume_target(console, summaries, session_id)
+        if last:
+            target = _most_recent_session(console, summaries, statuses=_RESUMABLE_STATUSES)
+        else:
+            target = _select_resume_target(console, summaries, session_id)
         if target is None:
             return
         result = _run_stored_session(
@@ -436,6 +471,13 @@ def sessions_resume(ctx, session_id: str | None = None, verbose: bool = False):
 @sessions.command("restart")
 @click.argument("session_id", required=False)
 @click.option(
+    "--last",
+    "last",
+    is_flag=True,
+    default=False,
+    help="Restart the most recently updated session (no ID needed)",
+)
+@click.option(
     "-v",
     "--verbose",
     is_flag=True,
@@ -443,7 +485,7 @@ def sessions_resume(ctx, session_id: str | None = None, verbose: bool = False):
     help="Show the details of failed crates after restarting",
 )
 @click.pass_context
-def sessions_restart(ctx, session_id: str | None = None, verbose: bool = False):
+def sessions_restart(ctx, session_id: str | None = None, last: bool = False, verbose: bool = False):
     """
     Re-run a stored validation session from scratch.
 
@@ -453,18 +495,21 @@ def sessions_restart(ctx, session_id: str | None = None, verbose: bool = False):
     It works on sessions of any status, typically a completed one whose crates
     have changed since the last run.
 
-    Pass a session ID (the short ID shown by `sessions list` is enough), or run
-    without arguments in interactive mode to pick one from a menu.
+    Pass a session ID (the short ID shown by `sessions list` is enough), use
+    --last for the most recently updated session, or run without arguments in
+    interactive mode to pick one from a menu.
     """
     console = ctx.obj["console"]
     interactive = ctx.obj.get("interactive", False)
-    if not session_id and not interactive:
-        raise click.UsageError("Specify a session ID (run `sessions list` to see the available sessions).")
+    _check_id_or_last(session_id, last, interactive)
 
     exit_code = 0
     try:
         summaries = _collect_sessions()
-        target = _select_session(console, summaries, session_id, prompt="Select a session to restart:")
+        if last:
+            target = _most_recent_session(console, summaries)
+        else:
+            target = _select_session(console, summaries, session_id, prompt="Select a session to restart:")
         if target is None:
             return
         result = _run_stored_session(
