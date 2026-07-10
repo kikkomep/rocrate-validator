@@ -134,6 +134,13 @@ def sessions_show(
 @sessions.command("report")
 @click.argument("session_id", required=False)
 @click.option(
+    "--last",
+    "last",
+    is_flag=True,
+    default=False,
+    help="Report the most recently updated session (no ID needed; handy for scripting)",
+)
+@click.option(
     "-o",
     "--output-file",
     type=click.Path(dir_okay=False, writable=True, path_type=Path),
@@ -167,6 +174,7 @@ def sessions_show(
 def sessions_report(
     ctx,
     session_id: str | None = None,
+    last: bool = False,
     output_file: Path | None = None,
     output_format: str = "text",
     verbose: bool = False,
@@ -182,16 +190,29 @@ def sessions_report(
     session data for external analysis tools, one row per reported issue with
     the crate fields repeated).
 
+    Pass a session ID, or use --last to report the most recently updated
+    session — e.g. right after a `validate` run, without looking the ID up.
     Sessions holding a single crate get a dedicated per-crate report instead
     of the batch statistics. Add -v to include every recorded issue message.
     """
     console = ctx.obj["console"]
     interactive = ctx.obj.get("interactive", False)
-    if not session_id and not interactive:
-        raise click.UsageError("Specify a session ID (run `sessions list` to see the available sessions).")
+    if session_id and last:
+        raise click.UsageError("Pass either a session ID or --last, not both.")
+    if not session_id and not last and not interactive:
+        raise click.UsageError(
+            "Specify a session ID or use --last (run `sessions list` to see the available sessions)."
+        )
     try:
         summaries = _collect_sessions()
-        target = _select_session(console, summaries, session_id, prompt="Select a session to report:")
+        if last:
+            # _collect_sessions sorts by update time, most recent first.
+            target = summaries[0] if summaries else None
+            if target is None:
+                console.print("[yellow]No validation sessions stored.[/yellow]")
+                return
+        else:
+            target = _select_session(console, summaries, session_id, prompt="Select a session to report:")
         if target is None:
             return
         _write_session_report(
