@@ -59,7 +59,7 @@ def _reset_requester(cache_path: Path, offline: bool = False) -> None:
 @click.pass_context
 def cache(ctx):
     """
-    [magenta]rocrate-validator:[/magenta] Manage the HTTP cache
+    [magenta]rocrate-validator:[/magenta] Inspect, warm and reset the HTTP cache backing remote and offline validation
     """
 
 

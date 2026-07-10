@@ -13,8 +13,10 @@
 # limitations under the License.
 
 """
-``rocrate-validator sessions`` subcommand: inspect and clear the auto-managed
-validation sessions stored under the user cache directory.
+``rocrate-validator sessions`` subcommand: browse the validation sessions
+stored under the user cache directory, generate reports from them (text,
+markdown or raw CSV), resume interrupted runs, restart stored ones from
+scratch and clear the history.
 """
 
 from __future__ import annotations
@@ -60,7 +62,7 @@ _RESUMABLE_STATUSES = ("in_progress", "interrupted")
 @click.pass_context
 def sessions(ctx):  # pylint: disable=unused-argument
     """
-    [magenta]rocrate-validator:[/magenta] Manage auto-managed validation sessions
+    [magenta]rocrate-validator:[/magenta] Browse past validation sessions, generate reports, resume or restart runs
     """
 
 
@@ -174,9 +176,9 @@ def sessions_report(
     Generate a complete report of a stored validation session.
 
     The report is rendered from what was saved — nothing is re-validated — and
-    goes to stdout, or to a file with -o. Supported formats: ``text`` (plain or
-    ANSI-coloured), ``md`` (markdown: summary, statistics and an issue-type
-    reference appendix every check identifier links to) and ``csv`` (the raw
+    goes to stdout, or to a file with -o. Supported formats: `text` (plain or
+    ANSI-coloured), `md` (markdown: summary, statistics and an issue-type
+    reference appendix every check identifier links to) and `csv` (the raw
     session data for external analysis tools, one row per reported issue with
     the crate fields repeated).
 

@@ -47,7 +47,7 @@ __all__ = ["cli", "click"]
     "-y",
     "--no-interactive",
     is_flag=True,
-    help="Disable interactive mode",
+    help="Run non-interactively (no prompts or menus)",
     default=False,
 )
 @click.option(

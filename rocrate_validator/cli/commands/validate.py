@@ -158,22 +158,32 @@ def validate_uri(ctx, param, value):  # pylint: disable=unused-argument
     "-m",
     "--metadata-only",
     is_flag=True,
-    help="Validate only the metadata of the RO-Crate",
+    help="Validate the metadata only, without checking the crate's data entities",
     default=False,
     show_default=True,
 )
-@click.option("-ff", "--fail-fast", is_flag=True, help="Fail fast validation mode", default=False, show_default=True)
+@click.option(
+    "-ff",
+    "--fail-fast",
+    is_flag=True,
+    help="Stop the validation at the first failed check",
+    default=False,
+    show_default=True,
+)
 @click.option(
     "--creation-time",
     is_flag=True,
-    help="Treat availability checks as required (creation time validation)",
+    help=(
+        "Validate as at crate-creation time: referenced resources are expected "
+        "to be available (enables the availability checks)"
+    ),
     default=False,
     show_default=True,
 )
 @click.option(
     "--enforce-availability",
     is_flag=True,
-    help="Force availability checks as required",
+    help="Always run the availability checks on web-based data entities",
     default=False,
     show_default=True,
 )
@@ -249,13 +259,9 @@ def validate_uri(ctx, param, value):  # pylint: disable=unused-argument
     show_default=True,
     metavar="Fully-Qualified-Check-IDs",
     help=(
-        "[bold yellow]Fully-Qualified-Check-IDs[/bold yellow] is a comma-separated list of checks to skip "
-        "(may be specified multiple times). Each check must be specified by its "
-        "Fully Qualified Identifier, e.g., [bold cyan]ro-crate-1.1_12.1[/bold cyan]. The fully qualified "
-        "check identifier has the format <Profile-ID>_<Requirement_#>.<RequirementCheck_#>, "
-        "where <Requirement_#> is the position number of the Requirement in the profile, "
-        "and <RequirementCheck_#> is the position number of the RequirementCheck within that Requirement. "
-        "You can find the Fully-Qualified-Check IDs using: "
+        "Comma-separated list of check identifiers to skip (may be given multiple times). "
+        "Use the fully-qualified form <Profile-ID>_<Requirement#>.<Check#>, "
+        "e.g. [bold cyan]ro-crate-1.1_12.1[/bold cyan]; list the identifiers with "
         "[bold orange1]rocrate-validator profiles describe <Profile-ID> -v[/bold orange1]"
     ),
 )
@@ -263,7 +269,7 @@ def validate_uri(ctx, param, value):  # pylint: disable=unused-argument
     "-v",
     "--verbose",
     is_flag=True,
-    help="Output the validation details without prompting",
+    help="Show the detailed validation report (in batch mode, the details of every failed crate)",
     default=False,
     show_default=True,
 )
@@ -281,7 +287,10 @@ def validate_uri(ctx, param, value):  # pylint: disable=unused-argument
     type=click.Choice(["text", "csv", "json"], case_sensitive=False),
     default="text",
     show_default=True,
-    help="Output format of the validation report ([bold]csv[/bold] is available in batch mode only)",
+    help=(
+        "Output format of the validation report; [bold]csv[/bold] (batch mode only) "
+        "is the raw data, one row per reported issue"
+    ),
 )
 @click.option(
     "-o",
@@ -297,7 +306,7 @@ def validate_uri(ctx, param, value):  # pylint: disable=unused-argument
     type=click.INT,
     default=120,
     show_default=True,
-    help="Width of the output line",
+    help="Line width of the report when written to a file",
 )
 @click.option(
     "--cache-max-age",
@@ -339,7 +348,10 @@ def validate_uri(ctx, param, value):  # pylint: disable=unused-argument
     "-b",
     "--batch",
     is_flag=True,
-    help="Validate every RO-Crate found under the [bold]RO-CRATE-URI[/bold] directory",
+    help=(
+        "Validate every RO-Crate found under the [bold]RO-CRATE-URI[/bold] directory; "
+        "when it holds no crate directly, its subdirectories are explored until crates are found"
+    ),
     default=False,
     show_default=True,
 )
@@ -348,7 +360,7 @@ def validate_uri(ctx, param, value):  # pylint: disable=unused-argument
     type=click.STRING,
     default="*",
     show_default=True,
-    help="Glob pattern to filter RO-Crates in batch mode",
+    help="Glob pattern filtering the crate names in batch mode (intermediate directories are not matched)",
 )
 @click.option(
     "--no-resume",
@@ -413,7 +425,7 @@ def validate(
     no_session: bool = False,
 ):
     """
-    [magenta]rocrate-validator:[/magenta] Validate a RO-Crate against a profile
+    [magenta]rocrate-validator:[/magenta] Validate RO-Crates against one or more profiles (single crate or batch)
     """
     console: Console = ctx.obj["console"]
     pager = ctx.obj["pager"]
