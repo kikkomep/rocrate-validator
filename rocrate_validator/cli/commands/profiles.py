@@ -59,7 +59,7 @@ logger = logging.getLogger(__name__)
 @click.pass_context
 def profiles(ctx, profiles_path: Path = DEFAULT_PROFILES_PATH, extra_profiles_path: Path | None = None):
     """
-    [magenta]rocrate-validator:[/magenta] Manage profiles
+    [magenta]rocrate-validator:[/magenta] Browse the available validation profiles and their checks
     """
     logger.debug("Profiles path: %s", profiles_path)
     ctx.obj["profiles_path"] = profiles_path
@@ -73,7 +73,7 @@ def profiles(ctx, profiles_path: Path = DEFAULT_PROFILES_PATH, extra_profiles_pa
 @click.pass_context
 def list_profiles(ctx, no_paging: bool = False):  # , profiles_path: Path = DEFAULT_PROFILES_PATH):
     """
-    List available profiles
+    List the available validation profiles (their identifiers are what `validate -p` accepts)
     """
     profiles_path = ctx.obj["profiles_path"]
     extra_profiles_path = ctx.obj["extra_profiles_path"]
