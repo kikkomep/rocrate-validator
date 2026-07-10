@@ -1166,6 +1166,44 @@ def test_sessions_report_last_rejects_id(cli_runner: CliRunner, isolated_session
     assert "not both" in result.output
 
 
+def test_sessions_show_last_picks_most_recent(cli_runner: CliRunner, isolated_sessions_dir):
+    """`show --last` targets the most recently updated session."""
+    _write_fake_session(
+        isolated_sessions_dir, "old001", status="completed", total=1, completed=1, failed=0, paths=["/data/crateOld"]
+    )
+    _write_fake_session(
+        isolated_sessions_dir, "new001", status="completed", total=1, completed=1, failed=0, paths=["/data/crateNew"]
+    )
+    # Both fake sessions share the same timestamp: bump the second one so it is
+    # unambiguously the most recent.
+    newer = isolated_sessions_dir / "new001.json"
+    data = json.loads(newer.read_text())
+    data["session"]["updated_at"] = "2026-06-23T10:00:00+00:00"
+    newer.write_text(json.dumps(data), encoding="utf-8")
+
+    result = cli_runner.invoke(cli, ["--no-interactive", "sessions", "show", "--last"])
+    assert result.exit_code == 0, result.output
+    assert "crateNew" in result.output
+    assert "crateOld" not in result.output
+
+
+def test_sessions_resume_last_needs_resumable(cli_runner: CliRunner, isolated_sessions_dir):
+    """`resume --last` only considers resumable sessions."""
+    _write_fake_session(
+        isolated_sessions_dir, "done01", status="completed", total=1, completed=1, failed=0, paths=["/data/crateA"]
+    )
+    result = cli_runner.invoke(cli, ["--no-interactive", "sessions", "resume", "--last"])
+    assert result.exit_code == 0, result.output
+    assert "no resumable" in result.output.lower()
+
+
+def test_sessions_restart_last_without_sessions(cli_runner: CliRunner, isolated_sessions_dir):
+    """`restart --last` with an empty history reports it gracefully."""
+    result = cli_runner.invoke(cli, ["--no-interactive", "sessions", "restart", "--last"])
+    assert result.exit_code == 0, result.output
+    assert "no validation sessions" in result.output.lower()
+
+
 def test_sessions_report_last_without_sessions(cli_runner: CliRunner, isolated_sessions_dir):
     """--last with an empty history reports it gracefully."""
     result = cli_runner.invoke(cli, ["--no-interactive", "sessions", "report", "--last"])
