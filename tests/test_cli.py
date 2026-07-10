@@ -1078,8 +1078,19 @@ def test_sessions_show_not_found(cli_runner: CliRunner, isolated_sessions_dir):
     assert "no session matches" in result.output.lower()
 
 
-def test_validate_stats_text(cli_runner: CliRunner):
-    """`validate -b --stats` appends the textual statistics after the summary."""
+def test_validate_stats_removed(cli_runner: CliRunner):
+    """`validate --stats` no longer exists: statistics live in `sessions report`."""
+    result = cli_runner.invoke(
+        cli,
+        ["--no-interactive", "validate", "--batch", str(CRATES_DATA_PATH / "valid"), "--stats"],
+    )
+    assert result.exit_code != 0
+    assert "no such option" in result.output.lower()
+
+
+def test_validate_then_sessions_report_last(cli_runner: CliRunner, isolated_sessions_dir, tmp_path):
+    """The one-command CI flow: validate --batch, then report the last session with --last."""
+    output_file = tmp_path / "report.md"
     valid_dir = str(ValidROC().wrroc_paper_long_date.parent)
     result = cli_runner.invoke(
         cli,
@@ -1094,43 +1105,31 @@ def test_validate_stats_text(cli_runner: CliRunner):
             "ro-crate-1.1",
             "--no-paging",
             "--no-resume",
-            "--stats",
         ],
     )
     assert result.exit_code == 0, result.output
-    assert "Statistics" in result.output
-    assert "Outcome Summary" in result.output
 
-
-def test_validate_stats_ignored_for_json(cli_runner: CliRunner, tmp_path):
-    """--stats is ignored for JSON output (text-only): the report file stays valid JSON."""
-    output_file = tmp_path / "out.json"
-    valid_dir = str(ValidROC().wrroc_paper_long_date.parent)
     result = cli_runner.invoke(
-        cli,
-        [
-            "--no-interactive",
-            "validate",
-            "--batch",
-            valid_dir,
-            "--batch-pattern",
-            "wrroc-paper-long-date",
-            "--profile-identifier",
-            "ro-crate-1.1",
-            "--no-paging",
-            "--no-resume",
-            "--output-format",
-            "json",
-            "--output-file",
-            str(output_file),
-            "--stats",
-        ],
+        cli, ["--no-interactive", "sessions", "report", "--last", "-o", str(output_file), "-f", "md"]
     )
     assert result.exit_code == 0, result.output
-    assert "ignored for 'json'" in result.stderr
-    # The report file is plain JSON, with no statistics tables mixed in.
-    data = json.loads(output_file.read_text(), strict=False)
-    assert "batch_passed" in data
+    content = output_file.read_text()
+    assert "Validation Report" in content
+    assert "wrroc-paper" in content
+
+
+def test_sessions_report_last_rejects_id(cli_runner: CliRunner, isolated_sessions_dir):
+    """--last and an explicit session ID are mutually exclusive."""
+    result = cli_runner.invoke(cli, ["--no-interactive", "sessions", "report", "abc123", "--last"])
+    assert result.exit_code != 0
+    assert "not both" in result.output
+
+
+def test_sessions_report_last_without_sessions(cli_runner: CliRunner, isolated_sessions_dir):
+    """--last with an empty history reports it gracefully."""
+    result = cli_runner.invoke(cli, ["--no-interactive", "sessions", "report", "--last"])
+    assert result.exit_code == 0, result.output
+    assert "no validation sessions" in result.output.lower()
 
 
 def test_sessions_show_stats(cli_runner: CliRunner, isolated_sessions_dir):

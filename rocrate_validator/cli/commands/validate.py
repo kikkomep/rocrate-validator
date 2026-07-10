@@ -50,7 +50,7 @@ from rocrate_validator.utils.io_helpers.output.csv_report import write_report_cs
 from rocrate_validator.utils.io_helpers.output.json import JSONOutputFormatter
 from rocrate_validator.utils.io_helpers.output.text import TextOutputFormatter
 from rocrate_validator.utils.io_helpers.output.text.layout.report import LiveTextProgressLayout, get_app_header_rule
-from rocrate_validator.utils.io_helpers.output.text.statistics import render_issue_reference, render_statistics
+from rocrate_validator.utils.io_helpers.output.text.statistics import render_issue_reference
 from rocrate_validator.utils.paths import get_profiles_path
 from rocrate_validator.utils.uri import validate_rocrate_uri
 
@@ -73,7 +73,6 @@ _VALIDATE_OPTION_GROUPS = {
                 "--batch",
                 "--batch-pattern",
                 "--no-resume",
-                "--stats",
             ],
         },
         {
@@ -373,15 +372,6 @@ def validate_uri(ctx, param, value):  # pylint: disable=unused-argument
     show_default=True,
 )
 @click.option(
-    "--stats",
-    "--statistics",
-    "stats",
-    is_flag=True,
-    help="Append textual statistics about the batch run (text output only)",
-    default=False,
-    show_default=True,
-)
-@click.option(
     "--no-session",
     is_flag=True,
     help="Do not record this validation in the sessions history (see `sessions list`)",
@@ -421,7 +411,6 @@ def validate(
     batch: bool = False,
     batch_pattern: str = "*",
     no_resume: bool = False,
-    stats: bool = False,
     no_session: bool = False,
 ):
     """
@@ -521,7 +510,6 @@ def validate(
                 output_format=output_format,
                 output_file=output_file,
                 output_line_width=output_line_width,
-                stats=stats,
             )
 
         # CSV is a batch-only report format; reject it for single-crate validation.
@@ -605,7 +593,6 @@ def _run_batch_validation(
     output_format: str,
     output_file: Path | None,
     output_line_width: int | None,
-    stats: bool = False,
 ) -> None:
     """Run batch validation end-to-end and exit with the aggregated status code."""
     crate_paths = _discover_batch_crates(
@@ -671,12 +658,6 @@ def _run_batch_validation(
             output_file=output_file,
             output_line_width=output_line_width,
             verbose=verbose,
-            stats=stats,
-        )
-    # Statistics are a human-readable view; they are not embedded in machine output.
-    if stats and output_format in ("json", "csv"):
-        Console(file=sys.stderr, no_color=console.no_color, width=console.width).print(
-            f"[yellow]Note:[/yellow] --stats is ignored for '{output_format}' output (text mode only)."
         )
     _report_batch_status(
         console,
@@ -847,14 +828,13 @@ def _write_batch_report(
     output_file: Path | None,
     output_line_width: int | None,
     verbose: bool,
-    stats: bool = False,
 ) -> None:
     """
     Write the batch result as JSON, CSV or a text summary, to a file or the console.
 
-    When ``stats`` is set, the textual statistics are appended after the summary
-    in text mode (console or file); they are a human-readable view and are not
-    emitted for the machine-readable JSON/CSV formats.
+    Statistics are not rendered here: the complete document (summary,
+    statistics, issue details, appendix) is available at any time from the
+    recorded session via ``sessions report``.
 
     Where the report is saved is reported afterwards by :func:`_report_batch_status`,
     so this function does not print its own "writing to ..." notes.
@@ -882,16 +862,12 @@ def _write_batch_report(
             out = Console(color_system=None, width=output_line_width, file=f)
             out.register_formatter(TextOutputFormatter())
             BatchValidationCommandView(console=out).show_summary(batch_result, verbose=verbose)
-            if stats:
-                render_statistics(out, crate_dicts)
             # Appendix with the description of each reported issue type — only
-            # when the report shows issue identifiers (verbose details or stats).
-            if verbose or stats:
+            # when the report shows issue identifiers (verbose details).
+            if verbose:
                 render_issue_reference(out, crate_dicts)
     else:
         batch_view.show_summary(batch_result, verbose=verbose)
-        if stats:
-            render_statistics(batch_view.console, crate_dicts)
 
 
 def _print_batch_header(
