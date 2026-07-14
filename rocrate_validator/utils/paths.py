@@ -100,6 +100,26 @@ def get_user_sessions_dir() -> Path:
     return get_user_cache_dir() / constants.USER_SESSIONS_DIR_NAME
 
 
+def get_user_runs_dir() -> Path:
+    """
+    Get the directory where temporary batch run-state files are stored.
+
+    Mirrors :func:`get_user_sessions_dir`: located under the user cache
+    directory, so it honors the XDG Base Directory Specification. Run-states
+    are deleted on completion and persist only for interrupted runs (see
+    ``validate --resume``).
+
+    :return: The path to the run-states directory (not guaranteed to exist)
+    """
+    return get_user_cache_dir() / constants.USER_RUNS_DIR_NAME
+
+
+def _hashed_state_path(base_dir: Path, key_parts: list[str]) -> Path:
+    """A deterministic ``<sha1(key_parts)>.json`` path under ``base_dir``."""
+    digest = hashlib.sha1("|".join(key_parts).encode("utf-8")).hexdigest()
+    return base_dir / f"{digest}.json"
+
+
 def get_batch_session_path(key_parts: list[str]) -> Path:
     """
     Derive the auto-managed batch session file path for a given batch target.
@@ -112,8 +132,22 @@ def get_batch_session_path(key_parts: list[str]) -> Path:
     :param key_parts: the components that uniquely identify the batch target
     :return: the session file path under the user sessions directory
     """
-    digest = hashlib.sha1("|".join(key_parts).encode("utf-8")).hexdigest()
-    return get_user_sessions_dir() / f"{digest}.json"
+    return _hashed_state_path(get_user_sessions_dir(), key_parts)
+
+
+def get_run_state_path(key_parts: list[str]) -> Path:
+    """
+    Derive the temporary run-state file path for a given batch target.
+
+    Same deterministic-hash scheme as :func:`get_batch_session_path`, but the
+    file lives under the runs directory: re-running the same batch command
+    resolves to the same run-state so an interrupted run can be resumed with
+    ``validate --resume``.
+
+    :param key_parts: the components that uniquely identify the batch target
+    :return: the run-state file path under the user runs directory
+    """
+    return _hashed_state_path(get_user_runs_dir(), key_parts)
 
 
 def get_default_http_cache_path() -> Path:

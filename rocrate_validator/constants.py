@@ -121,5 +121,13 @@ USER_CACHE_FILE_NAME = "http_cache"
 # Directory name (under the user cache dir) where auto-managed batch session
 # files are persisted, keyed by a deterministic hash of the batch target.
 USER_SESSIONS_DIR_NAME = "sessions"
+# Directory name (under the user cache dir) where temporary run-state files are
+# persisted while a batch validation is in progress, keyed by a deterministic
+# hash of the batch target. A run-state is deleted on completion and kept only
+# when the run is interrupted, so it can be resumed with `validate --resume`.
+USER_RUNS_DIR_NAME = "runs"
+# Maximum age (in days) of an interrupted run-state before it is considered
+# stale and garbage-collected at the start of a `validate` invocation.
+RUN_STATE_TTL_DAYS = 30
 # Environment variable to disable automatic warm-up of the HTTP cache
 AUTO_WARM_ENV_VAR = "ROCRATE_VALIDATOR_AUTO_WARM"

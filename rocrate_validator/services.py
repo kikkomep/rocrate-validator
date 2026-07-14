@@ -44,7 +44,11 @@ from rocrate_validator.models import (
 )
 from rocrate_validator.utils import log as logging
 from rocrate_validator.utils.http import HttpRequester
-from rocrate_validator.utils.paths import get_batch_session_path, get_profiles_path
+from rocrate_validator.utils.paths import (
+    get_batch_session_path,
+    get_profiles_path,
+    get_run_state_path,
+)
 from rocrate_validator.utils.uri import URI
 
 # set the default profiles path
@@ -312,26 +316,35 @@ def _discover_crate_collection(directory: Path) -> set[Path]:
     return crates
 
 
-def resolve_batch_session_path(
-    settings: ValidationSettings,
-    scan_root: Path,
-    pattern: str,
-    profile_identifiers: list[str] | None = None,
-    no_auto_profile: bool = False,
-) -> Path:
+def normalize_state_targets(targets: list[str | Path]) -> list[str]:
     """
-    Resolve the auto-managed session file path for a batch target.
+    Normalize the user-supplied batch targets into the stable strings used to
+    key a state file: local paths are resolved to absolute paths, remote URIs
+    are kept as-is (never run through ``Path.resolve()``). Explicit lists are
+    sorted so the key does not depend on the order the targets were passed in.
+    """
+    normalized: list[str] = []
+    for target in targets:
+        uri = URI(str(target))
+        normalized.append(str(uri.as_path().resolve()) if not uri.is_remote_resource() else str(uri))
+    return sorted(normalized)
 
-    The path is derived deterministically from the scan root, the discovery
-    options and the validation settings that affect the outcome (profiles and
-    severity), so that re-running the same command resolves to the same file
-    and can be auto-resumed. Changing the profile selection or severity
-    intentionally starts a new session.
 
-    The profile part reflects what is *actually* applied per crate: the explicit
-    ``profile_identifiers`` list (order-independent), or the auto-detection mode
-    when no profile is given. This keeps distinct profile selections (e.g. two
-    different multi-profile sets) on separate sessions.
+def _state_key_parts(
+    settings: ValidationSettings,
+    targets: list[str],
+    pattern: str,
+    profile_identifiers: list[str] | None,
+    no_auto_profile: bool,
+) -> list[str]:
+    """
+    The components that deterministically identify a batch state file.
+
+    The key is anchored to the *user input* (the scan root or the explicit
+    target list, already normalized by :func:`normalize_state_targets`), never
+    to the discovered crate list: crates added to a collection between runs
+    must not change the key, so an interrupted run still matches and the new
+    crates simply join the pending set on resume.
     """
     settings_dict = settings.to_dict() if hasattr(settings, "to_dict") else {}
     # With explicit profiles the key is their sorted list; otherwise it encodes
@@ -342,14 +355,79 @@ def resolve_batch_session_path(
     severity_only = bool(
         getattr(settings, "requirement_severity_only", settings_dict.get("requirement_severity_only", False))
     )
-    key_parts = [
-        str(Path(scan_root).resolve()),
+    return [
+        *targets,
         pattern,
         profile_key,
         str(settings_dict.get("requirement_severity", "")),
         str(severity_only),
     ]
-    return get_batch_session_path(key_parts)
+
+
+def resolve_run_state_path(
+    settings: ValidationSettings,
+    targets: list[str],
+    pattern: str = "*",
+    profile_identifiers: list[str] | None = None,
+    no_auto_profile: bool = False,
+) -> Path:
+    """
+    Resolve the temporary run-state file path for a batch target.
+
+    Mirrors :func:`resolve_batch_session_path` but addresses the runs
+    directory: the path is derived deterministically from the user-supplied
+    targets (see :func:`normalize_state_targets`) and the settings that affect
+    the outcome, so re-running the same command finds the same run-state and
+    an interrupted run can be resumed with ``validate --resume``.
+    """
+    return get_run_state_path(_state_key_parts(settings, targets, pattern, profile_identifiers, no_auto_profile))
+
+
+def resolve_session_state_path(
+    settings: ValidationSettings,
+    targets: list[str],
+    pattern: str = "*",
+    profile_identifiers: list[str] | None = None,
+    no_auto_profile: bool = False,
+) -> Path:
+    """
+    Resolve the auto-managed (unnamed) session file path for a batch target.
+
+    Same deterministic key as :func:`resolve_run_state_path`, addressed under
+    the sessions directory: re-running ``validate --session`` on the same
+    target with the same criteria maps to the same session file.
+    """
+    return get_batch_session_path(_state_key_parts(settings, targets, pattern, profile_identifiers, no_auto_profile))
+
+
+def resolve_batch_session_path(
+    settings: ValidationSettings,
+    scan_root: Path,
+    pattern: str,
+    profile_identifiers: list[str] | None = None,
+    no_auto_profile: bool = False,
+) -> Path:
+    """
+    Resolve the auto-managed session file path for a single-scan-root batch.
+
+    The path is derived deterministically from the scan root, the discovery
+    options and the validation settings that affect the outcome (profiles and
+    severity), so that re-running the same command resolves to the same file.
+    Changing the profile selection or severity intentionally starts a new
+    session.
+
+    The profile part reflects what is *actually* applied per crate: the explicit
+    ``profile_identifiers`` list (order-independent), or the auto-detection mode
+    when no profile is given. This keeps distinct profile selections (e.g. two
+    different multi-profile sets) on separate sessions.
+    """
+    return resolve_session_state_path(
+        settings,
+        [str(Path(scan_root).resolve())],
+        pattern,
+        profile_identifiers=profile_identifiers,
+        no_auto_profile=no_auto_profile,
+    )
 
 
 def resolve_single_crate_session_path(

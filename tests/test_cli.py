@@ -14,6 +14,7 @@
 
 import json
 import re
+import shutil
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -28,7 +29,7 @@ from rocrate_validator.requirements.python import PyFunctionCheck
 from rocrate_validator.requirements.shacl.checks import SHACLCheck
 from rocrate_validator.services import discover_ro_crates
 from rocrate_validator.utils import log as logging
-from rocrate_validator.utils.paths import get_user_sessions_dir
+from rocrate_validator.utils.paths import get_user_runs_dir, get_user_sessions_dir
 from rocrate_validator.utils.versioning import get_version
 from tests.conftest import SKIP_LOCAL_DATA_ENTITY_EXISTENCE_CHECK_IDENTIFIER
 from tests.ro_crates import CRATES_DATA_PATH, InvalidFileDescriptor, ValidROC
@@ -1015,6 +1016,64 @@ def test_batch_only_options_require_batch_mode(cli_runner: CliRunner, flag: str)
     )
     assert result.exit_code != 0
     assert "batch mode" in result.output.lower()
+
+
+# ---------------------------------------------------------------------------
+# Input auto-detection, opt-in sessions and resume
+# ---------------------------------------------------------------------------
+
+# Shared trailing options for the validate invocations in this section.
+_VALIDATE_OPTS = ["-p", "ro-crate-1.1", "--no-paging", "--skip-availability-check"]
+
+
+def _make_collection(tmp_path: Path, n: int = 2) -> tuple[Path, list[str]]:
+    """A collection directory holding ``n`` copies of a small valid crate."""
+    src = ValidROC().wrroc_paper_long_date
+    coll = tmp_path / "collection"
+    coll.mkdir()
+    crates = []
+    for i in range(n):
+        dst = coll / f"crate-{i}"
+        shutil.copytree(src, dst)
+        crates.append(str(dst))
+    return coll, crates
+
+
+def _write_interrupted_state(state_path: Path, crate_paths: list[str], completed_count: int = 1) -> None:
+    """Persist an interrupted batch state with the first crates marked completed."""
+    session = BatchSession(validation_settings={}, crate_paths=crate_paths, session_path=state_path)
+    for i in range(completed_count):
+        session.crates[i].status = "completed"
+        session.crates[i].passed = True
+    session.completed_crates = completed_count
+    session.status = "interrupted"
+    session.profile_identifiers = ["ro-crate-1.1"]
+    session.save()
+
+
+def test_run_state_key_is_input_anchored(tmp_path):
+    """The run-state key derives from the user input, not from the discovered crates."""
+    settings = ValidationSettings.parse({"rocrate_uri": ".", "profile_identifier": "ro-crate"})
+    targets = services.normalize_state_targets([tmp_path])
+    before = services.resolve_run_state_path(settings, targets, "*", profile_identifiers=["ro-crate-1.1"])
+    # New content under the scan root must not change the key.
+    (tmp_path / "new-crate").mkdir()
+    after = services.resolve_run_state_path(
+        settings, services.normalize_state_targets([tmp_path]), "*", profile_identifiers=["ro-crate-1.1"]
+    )
+    assert before == after
+    # Explicit lists are order-independent.
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
+    assert services.resolve_run_state_path(
+        settings, services.normalize_state_targets([a, b])
+    ) == services.resolve_run_state_path(settings, services.normalize_state_targets([b, a]))
+    # Remote URIs are keyed as-is (never Path-resolved).
+    assert services.normalize_state_targets(["https://example.org/crate.zip"]) == ["https://example.org/crate.zip"]
+    # Run-states and unnamed sessions live in their own directories.
+    assert services.resolve_run_state_path(settings, targets).parent == get_user_runs_dir()
+    assert services.resolve_session_state_path(settings, targets).parent == get_user_sessions_dir()
 
 
 def _write_fake_session(sessions_dir, session_id, *, status, total, completed, failed, paths):
