@@ -27,6 +27,7 @@ from rocrate_validator.constants import (
     HTTP_STATUS_BAD_REQUEST,
     HTTP_STATUS_GATEWAY_TIMEOUT,
     ROCRATE_METADATA_FILE,
+    RUN_STATE_TTL_DAYS,
 )
 from rocrate_validator.errors import ProfileNotFound
 from rocrate_validator.events import Subscriber
@@ -48,6 +49,7 @@ from rocrate_validator.utils.paths import (
     get_batch_session_path,
     get_profiles_path,
     get_run_state_path,
+    get_user_runs_dir,
 )
 from rocrate_validator.utils.uri import URI
 
@@ -430,6 +432,34 @@ def resolve_batch_session_path(
     )
 
 
+def cleanup_stale_run_states(ttl_days: int = RUN_STATE_TTL_DAYS) -> int:
+    """
+    Garbage-collect stale run-state files (best effort).
+
+    Interrupted runs that are never resumed would otherwise accumulate in the
+    runs directory forever, invisible to ``sessions list``. Every run-state
+    whose file is older than ``ttl_days`` is removed; failures are ignored.
+
+    :param ttl_days: age threshold in days (defaults to ``RUN_STATE_TTL_DAYS``)
+    :return: the number of files removed
+    """
+    runs_dir = get_user_runs_dir()
+    if not runs_dir.is_dir():
+        return 0
+    cutoff = time.time() - ttl_days * 24 * 3600
+    removed = 0
+    for state_file in runs_dir.glob("*.json"):
+        try:
+            if state_file.stat().st_mtime < cutoff:
+                state_file.unlink()
+                removed += 1
+        except OSError as e:
+            logger.debug("Could not garbage-collect run-state %s: %s", state_file, e)
+    if removed:
+        logger.debug("Garbage-collected %d stale run-state(s)", removed)
+    return removed
+
+
 def resolve_single_crate_session_path(
     settings: ValidationSettings,
     rocrate_uri: str | Path,
@@ -475,17 +505,17 @@ def _load_previous_session(session_path: Path | None) -> BatchSession | None:
 def _prepare_batch_session(
     settings: ValidationSettings,
     rocrate_uris: list[str],
-    session_path: Path | None,
+    state_path: Path | None,
     fresh: bool,
 ) -> tuple[BatchSession, list[str]]:
     """
-    Create or auto-resume a batch session and return it together with the
+    Create or resume a batch session and return it together with the
     URIs that still need to be validated.
 
-    A previous session is resumed only when it exists and is *not* already
+    A previous state is resumed only when it exists and is *not* already
     completed (i.e. it was interrupted): in that case the crates that were
     already validated are carried over and only the remaining (plus any newly
-    discovered) crates are validated. A completed or missing session — or an
+    discovered) crates are validated. A completed or missing state — or an
     explicit ``fresh`` request — starts a brand-new session that revalidates
     everything.
     """
@@ -493,10 +523,10 @@ def _prepare_batch_session(
     session = BatchSession(
         validation_settings=settings_dict,
         crate_paths=rocrate_uris,
-        session_path=session_path,
+        session_path=state_path,
     )
 
-    previous = None if fresh else _load_previous_session(session_path)
+    previous = None if fresh else _load_previous_session(state_path)
     if previous is None or previous.is_completed():
         return session, list(rocrate_uris)
 
@@ -655,8 +685,9 @@ _SESSION_SAVE_INTERVAL_SECONDS = 2.0
 def batch_validate(
     settings: ValidationSettings,
     rocrate_uris: list[str],
-    session_path: Path | None = None,
+    state_path: Path | None = None,
     fresh: bool = False,
+    ephemeral: bool = True,
     progress_callback: Callable | None = None,
     profile_identifiers: list[str] | None = None,
     no_auto_profile: bool = False,
@@ -666,11 +697,18 @@ def batch_validate(
     """
     Validate multiple RO-Crates in batch mode.
 
-    The batch session is always persisted incrementally to ``session_path`` and
-    auto-resumed when an interrupted session for the same target already exists
-    (unless ``fresh`` is set). The session path is managed automatically by the
-    caller (see :func:`resolve_batch_session_path`); callers do not need to
-    supply or track a session file by hand.
+    The batch state is persisted incrementally to ``state_path`` and resumed
+    when an interrupted state for the same target already exists (unless
+    ``fresh`` is set). The state file is written directly at its final
+    location for the whole run — there is no promotion/copy step — so an
+    interrupted run is always resumable from that same file:
+
+    - ``ephemeral=True`` (run-state, see :func:`resolve_run_state_path`): the
+      file is **deleted on completion** and persists only when the run is
+      interrupted, for ``validate --resume``;
+    - ``ephemeral=False`` (session): the file persists after completion as a
+      permanent, browsable session (``sessions list/show/report``), and with
+      status ``interrupted`` when the run does not finish (``sessions resume``).
 
     Profiles are resolved *per crate*: an explicit ``profile_identifiers`` list is
     applied to every crate, otherwise each crate's profile is auto-detected
@@ -678,8 +716,11 @@ def batch_validate(
 
     :param settings: shared validation settings (severity, cache, availability, etc.)
     :param rocrate_uris: list of RO-Crate paths to validate
-    :param session_path: auto-managed path where the session is saved/resumed
-    :param fresh: ignore any existing session and revalidate everything
+    :param state_path: path where the batch state is saved/resumed (run-state
+        or session file, resolved by the caller); ``None`` disables persistence
+    :param fresh: ignore any existing state and revalidate everything
+    :param ephemeral: delete the state file on completion (run-state semantics);
+        set to ``False`` to keep it as a permanent session
     :param progress_callback: optional callable(crate_path, index, total, status, message)
     :param profile_identifiers: explicit profiles to validate every crate against
     :param no_auto_profile: disable per-crate profile auto-detection
@@ -693,7 +734,7 @@ def batch_validate(
         absent, one is created for (and scoped to) this batch run
     :return: aggregated batch validation result
     """
-    session, rocrate_uris = _prepare_batch_session(settings, rocrate_uris, session_path, fresh)
+    session, rocrate_uris = _prepare_batch_session(settings, rocrate_uris, state_path, fresh)
     # Persist the profile resolution options on the session so it can be resumed
     # later (e.g. via `sessions resume`) with exactly the same criteria.
     session.profile_identifiers = list(profile_identifiers) if profile_identifiers else None
@@ -701,11 +742,18 @@ def batch_validate(
     session.requirement_severity_only = bool(getattr(settings, "requirement_severity_only", False))
     results: list[tuple[str, ValidationResult]] = []
 
-    # Register SIGINT handler for graceful interruption
+    # Register SIGINT handler for graceful interruption. The state file is
+    # saved (never deleted) so the run stays resumable.
+    resume_hint = (
+        "Re-run the same command with --resume to continue."
+        if ephemeral
+        else "Resume it with `rocrate-validator sessions resume`."
+    )
+
     def _sigint_handler(_signum, _frame):
         session.status = "interrupted"
         session.save()
-        print("\n⚠  Batch interrupted. Re-run the same command to resume.", file=sys.stderr)
+        print(f"\n⚠  Batch interrupted. {resume_hint}", file=sys.stderr)
         sys.exit(130)
 
     original_handler = signal.getsignal(signal.SIGINT)
@@ -753,6 +801,15 @@ def batch_validate(
         progress_callback("", total, total, "saving", None)
     session.status = "completed" if session.is_completed() else "interrupted"
     session.save()
+
+    # An ephemeral run-state only exists to make interrupted runs resumable:
+    # once the batch completes it is deleted; when the run did not finish
+    # (e.g. a crate raised and stayed pending) it persists for --resume.
+    if ephemeral and state_path is not None and session.is_completed():
+        try:
+            Path(state_path).unlink(missing_ok=True)
+        except OSError as e:
+            logger.debug("Could not remove completed run-state %s: %s", state_path, e)
 
     return BatchValidationResult(session, results)
 

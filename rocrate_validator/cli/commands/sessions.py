@@ -800,8 +800,10 @@ def _run_stored_session(console, session_file: Path, *, fresh: bool, verbose: bo
         batch_validate_fn=services.batch_validate,
         settings=settings,
         rocrate_uris=crate_paths,
-        session_path=session_file,
+        state_path=session_file,
         fresh=fresh,
+        # A stored session is permanent: it must survive its own completion.
+        ephemeral=False,
         profile_identifiers=session.profile_identifiers,
         no_auto_profile=session.no_auto_profile,
         base_path=Path(base) if base else None,

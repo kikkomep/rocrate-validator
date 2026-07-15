@@ -740,7 +740,7 @@ def test_batch_validate_keep_results(tmp_path):
     dropped = services.batch_validate(
         settings,
         [crate],
-        session_path=tmp_path / "dropped.json",
+        state_path=tmp_path / "dropped.json",
         profile_identifiers=["ro-crate"],
         no_auto_profile=True,
     )
@@ -750,7 +750,7 @@ def test_batch_validate_keep_results(tmp_path):
     kept = services.batch_validate(
         settings,
         [crate],
-        session_path=tmp_path / "kept.json",
+        state_path=tmp_path / "kept.json",
         profile_identifiers=["ro-crate"],
         no_auto_profile=True,
         keep_results=True,
