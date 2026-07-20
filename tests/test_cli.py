@@ -20,7 +20,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from click.testing import CliRunner
-from pytest import fixture, mark
+from pytest import fixture
 
 from rocrate_validator import services
 from rocrate_validator.cli.main import cli
@@ -999,9 +999,8 @@ def test_no_resume_ignores_saved_session(cli_runner: CliRunner):
     assert "Validation Summary" in result.output
 
 
-@mark.parametrize("flag", ["--batch-pattern=foo*", "--no-resume"])
-def test_batch_only_options_require_batch_mode(cli_runner: CliRunner, flag: str):
-    """Batch-only options must be rejected when batch mode is not enabled."""
+def test_batch_pattern_requires_batch_mode(cli_runner: CliRunner):
+    """--batch-pattern must be rejected when the input is a single crate."""
     result = cli_runner.invoke(
         cli,
         [
@@ -1011,7 +1010,8 @@ def test_batch_only_options_require_batch_mode(cli_runner: CliRunner, flag: str)
             "--profile-identifier",
             "ro-crate-1.1",
             "--no-paging",
-            *flag.split("="),
+            "--batch-pattern",
+            "foo*",
         ],
     )
     assert result.exit_code != 0
@@ -1049,6 +1049,70 @@ def _write_interrupted_state(state_path: Path, crate_paths: list[str], completed
     session.status = "interrupted"
     session.profile_identifiers = ["ro-crate-1.1"]
     session.save()
+
+
+def test_autodetect_single_crate_dir(cli_runner: CliRunner, isolated_sessions_dir):
+    """A directory with its own ro-crate-metadata.json is validated as a single crate."""
+    crate = str(ValidROC().wrroc_paper_long_date)
+    result = cli_runner.invoke(cli, ["--no-interactive", "validate", crate, *_VALIDATE_OPTS])
+    assert result.exit_code == 0, result.output
+    assert "Batch validation" not in result.output
+    assert "[OK]" in result.output
+
+
+def test_autodetect_collection_dir_batches(cli_runner: CliRunner, isolated_sessions_dir, tmp_path):
+    """A directory without a metadata file is scanned and validated in batch mode (no -b needed)."""
+    coll, _ = _make_collection(tmp_path, n=2)
+    result = cli_runner.invoke(cli, ["--no-interactive", "validate", str(coll), *_VALIDATE_OPTS])
+    assert result.exit_code == 0, result.output
+    assert "Batch validation" in result.output
+    assert "Total: 2 crates" in result.output
+
+
+def test_autodetect_empty_collection_errors(cli_runner: CliRunner, isolated_sessions_dir, tmp_path):
+    """A directory holding no crate at all is rejected with a clear error."""
+    empty = tmp_path / "nothing-here"
+    (empty / "sub").mkdir(parents=True)
+    result = cli_runner.invoke(cli, ["--no-interactive", "validate", str(empty), *_VALIDATE_OPTS])
+    assert result.exit_code != 0
+    assert "no ro-crate metadata found" in result.output.lower()
+
+
+def test_explicit_list_batches(cli_runner: CliRunner, isolated_sessions_dir, tmp_path):
+    """Two or more positional URIs are validated as an explicit batch list."""
+    _, crates = _make_collection(tmp_path, n=2)
+    result = cli_runner.invoke(cli, ["--no-interactive", "validate", *crates, *_VALIDATE_OPTS])
+    assert result.exit_code == 0, result.output
+    assert "Batch validation" in result.output
+    assert "Total: 2 crates" in result.output
+
+
+def test_explicit_list_expands_collection_dirs(cli_runner: CliRunner, isolated_sessions_dir, tmp_path):
+    """A collection directory inside an explicit list is expanded to its crates (union)."""
+    coll, _ = _make_collection(tmp_path, n=2)
+    single = str(ValidROC().wrroc_paper_long_date)
+    result = cli_runner.invoke(cli, ["--no-interactive", "validate", single, str(coll), *_VALIDATE_OPTS])
+    assert result.exit_code == 0, result.output
+    assert "Total: 3 crates" in result.output
+
+
+def test_batch_pattern_rejected_with_explicit_list(cli_runner: CliRunner, isolated_sessions_dir, tmp_path):
+    """--batch-pattern only applies to a directory scan, not to an explicit list."""
+    _, crates = _make_collection(tmp_path, n=2)
+    result = cli_runner.invoke(
+        cli, ["--no-interactive", "validate", *crates, "--batch-pattern", "foo*", *_VALIDATE_OPTS]
+    )
+    assert result.exit_code != 0
+    assert "explicit list" in result.output.lower()
+
+
+def test_force_batch_on_crate_dir(cli_runner: CliRunner, isolated_sessions_dir):
+    """-b forces a directory scan even when the directory is itself a crate."""
+    crate = str(ValidROC().wrroc_paper_long_date)
+    result = cli_runner.invoke(cli, ["--no-interactive", "validate", "-b", crate, *_VALIDATE_OPTS])
+    assert result.exit_code == 0, result.output
+    assert "Batch validation" in result.output
+    assert "Total: 1 crates" in result.output
 
 
 def test_run_state_key_is_input_anchored(tmp_path):

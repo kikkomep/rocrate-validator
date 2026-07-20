@@ -14,9 +14,13 @@
 
 from __future__ import annotations
 
+import json
+import os
+import re
 import sys
 import time
 from contextlib import nullcontext
+from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
 
@@ -51,8 +55,8 @@ from rocrate_validator.utils.io_helpers.output.json import JSONOutputFormatter
 from rocrate_validator.utils.io_helpers.output.text import TextOutputFormatter
 from rocrate_validator.utils.io_helpers.output.text.layout.report import LiveTextProgressLayout, get_app_header_rule
 from rocrate_validator.utils.io_helpers.output.text.statistics import render_issue_reference
-from rocrate_validator.utils.paths import get_profiles_path
-from rocrate_validator.utils.uri import validate_rocrate_uri
+from rocrate_validator.utils.paths import get_profiles_path, get_user_sessions_dir
+from rocrate_validator.utils.uri import URI, validate_rocrate_uri
 
 # set the default profiles path
 DEFAULT_PROFILES_PATH = get_profiles_path()
@@ -72,6 +76,13 @@ _VALIDATE_OPTION_GROUPS = {
             "options": [
                 "--batch",
                 "--batch-pattern",
+            ],
+        },
+        {
+            "name": "Sessions & resume",
+            "options": [
+                "--session",
+                "--resume",
                 "--no-resume",
             ],
         },
@@ -124,16 +135,17 @@ _VALIDATE_OPTION_GROUPS = {
 
 def validate_uri(ctx, param, value):  # pylint: disable=unused-argument
     """
-    Validate if the value is a path or a URI
+    Validate that each positional value is a usable RO-Crate path or URI.
 
     ``ctx`` is part of the click callback signature but is not used here.
+    The argument is variadic, so ``value`` is a tuple of URIs.
     """
-    if value:
+    for uri in value or ():
         try:
-            validate_rocrate_uri(value)
+            validate_rocrate_uri(uri)
         except ROCrateInvalidURIError as e:
             if logger.isEnabledFor(logging.DEBUG):
-                logger.exception("Invalid RO-Crate URI provided: %s", value)
+                logger.exception("Invalid RO-Crate URI provided: %s", uri)
             raise click.BadParameter(e.message, param=param) from e
     return value
 
@@ -145,7 +157,7 @@ def validate_uri(ctx, param, value):  # pylint: disable=unused-argument
         option_groups=_VALIDATE_OPTION_GROUPS,  # type: ignore[arg-type]
     )
 )
-@click.argument("rocrate-uri", callback=validate_uri, default=".")
+@click.argument("rocrate-uri", callback=validate_uri, nargs=-1)
 @click.option(
     "-rr",
     "--relative-root-path",
@@ -348,8 +360,8 @@ def validate_uri(ctx, param, value):  # pylint: disable=unused-argument
     "--batch",
     is_flag=True,
     help=(
-        "Validate every RO-Crate found under the [bold]RO-CRATE-URI[/bold] directory; "
-        "when it holds no crate directly, its subdirectories are explored until crates are found"
+        "Force batch mode: scan every [bold]RO-CRATE-URI[/bold] directory for the crates it "
+        "contains (batch mode is otherwise auto-detected from the input)"
     ),
     default=False,
     show_default=True,
@@ -361,20 +373,47 @@ def validate_uri(ctx, param, value):  # pylint: disable=unused-argument
     show_default=True,
     help="Glob pattern filtering the crate names in batch mode (intermediate directories are not matched)",
 )
+# Sessions & resume options
 @click.option(
-    "--no-resume",
+    "-S",
+    "--session",
+    "session",
+    is_flag=True,
+    default=False,
+    help=(
+        "Record this validation as a permanent session, browsable with "
+        "[bold orange1]sessions list/show/report[/bold orange1]. The session is "
+        "auto-named from a hash of the target and criteria; use "
+        "[bold]--session-name[/bold] to give it a mnemonic name"
+    ),
+)
+@click.option(
+    "--session-name",
+    "session_name",
+    default=None,
+    metavar="NAME",
+    help=(
+        "Name the recorded session [bold]sessions/<NAME>.json[/bold] instead of "
+        "the auto-generated hash. Implies [bold]--session[/bold]"
+    ),
+)
+@click.option(
+    "--resume",
     is_flag=True,
     help=(
-        "Ignore any auto-saved batch session and re-validate every RO-Crate "
-        "from scratch (sessions are otherwise resumed automatically)"
+        "Resume the interrupted run matching this command (same target, profiles and severity), "
+        "when one exists; start a fresh validation otherwise"
     ),
     default=False,
     show_default=True,
 )
 @click.option(
-    "--no-session",
+    "--no-resume",
     is_flag=True,
-    help="Do not record this validation in the sessions history (see `sessions list`)",
+    help=(
+        "Never resume: ignore any interrupted run matching this command and "
+        "re-validate every RO-Crate from scratch (no prompt in interactive mode)"
+    ),
     default=False,
     show_default=True,
 )
@@ -382,7 +421,7 @@ def validate_uri(ctx, param, value):  # pylint: disable=unused-argument
 # The CLI command surfaces every validation option as a parameter; pylint counts
 # those arguments as locals, so the limit is not meaningful here.
 # pylint: disable-next=too-many-locals
-def validate(
+def validate(  # noqa: C901, PLR0914
     ctx,
     profiles_path: Path = DEFAULT_PROFILES_PATH,
     extra_profiles_path: Path | None = None,
@@ -396,7 +435,7 @@ def validate(
     requirement_severity: str = Severity.REQUIRED.name,
     requirement_severity_only: bool = False,
     skip_checks: list[str] | None = None,
-    rocrate_uri: str | Path = ".",
+    rocrate_uri: tuple[str, ...] = (),
     relative_root_path: Path | None = None,
     fail_fast: bool = False,
     no_paging: bool = False,
@@ -410,8 +449,10 @@ def validate(
     offline: bool = False,
     batch: bool = False,
     batch_pattern: str = "*",
+    session: bool = False,
+    session_name: str | None = None,
+    resume: bool = False,
     no_resume: bool = False,
-    no_session: bool = False,
 ):
     """
     [magenta]rocrate-validator:[/magenta] Validate RO-Crates against one or more profiles (single crate or batch)
@@ -424,6 +465,22 @@ def validate(
     # override the enable_pager flag if the interactive flag is False
     if not interactive or sys.platform == "win32":
         enable_pager = False
+
+    # The positional argument is variadic: no argument defaults to the current
+    # directory, one argument is auto-detected (single crate vs collection),
+    # several arguments are an explicit list validated in batch mode.
+    rocrate_uris = list(rocrate_uri) or ["."]
+
+    # -S/--session opts into a permanent session; --session-name names it (and
+    # implies -S). Reduce the two flags to the tri-state the rest of the command
+    # consumes: None (no session), "" (auto-named session), or the given name.
+    if session_name is not None:
+        session_opt: str | None = session_name
+    elif session:
+        session_opt = ""
+    else:
+        session_opt = None
+
     _log_validation_inputs(
         profiles_path=profiles_path,
         extra_profiles_path=extra_profiles_path,
@@ -431,7 +488,7 @@ def validate(
         requirement_severity=requirement_severity,
         requirement_severity_only=requirement_severity_only,
         disable_profile_inheritance=disable_profile_inheritance,
-        rocrate_uri=rocrate_uri,
+        rocrate_uri=rocrate_uris,
         fail_fast=fail_fast,
         cache_max_age=cache_max_age,
         cache_path=cache_path,
@@ -439,25 +496,16 @@ def validate(
         offline=offline,
     )
 
-    # --no-cache and --offline are contradictory: offline mode requires a cache
-    # to serve requests from, while no-cache disables caching entirely.
-    if no_cache and offline:
-        raise click.UsageError(
-            "The --no-cache and --offline flags are mutually exclusive: "
-            "offline mode relies on the HTTP cache to serve resources."
-        )
-
-    if rocrate_uri:
-        logger.debug("rocrate_path: %s", Path(rocrate_uri).resolve())
-
-    _warn_if_remote_offline(console, rocrate_uri, offline)
-
-    # Batch mode is enabled by -b/--batch and scans the positional RO-CRATE-URI.
-    batch_mode = batch
-    _check_batch_only_options(
-        batch_mode=batch_mode,
-        batch_pattern=batch_pattern,
+    detected = _preflight_input_checks(
+        console,
+        rocrate_uris,
+        offline=offline,
+        no_cache=no_cache,
+        resume=resume,
         no_resume=no_resume,
+        batch=batch,
+        batch_pattern=batch_pattern,
+        session_opt=session_opt,
     )
 
     skip_checks_list = _parse_skip_checks(skip_checks)
@@ -471,7 +519,9 @@ def validate(
             "requirement_severity": requirement_severity,
             "requirement_severity_only": requirement_severity_only,
             "disable_inherited_profiles_issue_reporting": disable_profile_inheritance,
-            "rocrate_uri": rocrate_uri,
+            # The single-crate target, or a placeholder for (possibly empty)
+            # batch runs, where the URI is set per crate during validation.
+            "rocrate_uri": detected.crate_paths[0] if detected.crate_paths else rocrate_uris[0],
             "rocrate_relative_root_path": relative_root_path,
             "abort_on_first": fail_fast,
             "skip_checks": skip_checks_list,
@@ -492,11 +542,11 @@ def validate(
         if output_format == "text" and output_file is None:
             console.print(get_app_header_rule())
 
-        # Batch mode validates a directory of crates and exits with the aggregated
+        # Batch mode validates the detected crates and exits with the aggregated
         # status. Profiles are resolved *per crate* inside the batch (explicit
         # selection or per-crate auto-detection), so the single-crate profile
         # resolution below is intentionally skipped for batch runs.
-        if batch_mode:
+        if detected.mode == "batch":
             _run_batch_validation(
                 console,
                 base_settings=validation_settings,
@@ -504,17 +554,32 @@ def validate(
                 no_auto_profile=no_auto_profile,
                 cache_max_age=cache_max_age,
                 verbose=verbose,
-                rocrate_uri=rocrate_uri,
+                detected=detected,
                 batch_pattern=batch_pattern,
-                fresh=no_resume,
+                session_opt=session_opt,
+                resume=resume,
+                no_resume=no_resume,
+                interactive=interactive,
                 output_format=output_format,
                 output_file=output_file,
                 output_line_width=output_line_width,
             )
 
+        # Single-crate validation is atomic: there is no run-state to resume.
+        if resume:
+            Console(file=sys.stderr, no_color=console.no_color, width=console.width).print(
+                "[yellow]--resume has no effect on a single-crate validation "
+                "(nothing to resume); running a fresh validation.[/yellow]"
+            )
+
         # CSV is a batch-only report format; reject it for single-crate validation.
         if output_format == "csv":
-            raise click.UsageError("The 'csv' output format is only available in batch mode (-b/--batch).")
+            raise click.UsageError("The 'csv' output format is only available in batch mode.")
+
+        # Resolve (and guard) the named session path up front, before any
+        # validation work: an existing non-empty session must not be
+        # silently overwritten.
+        single_session_path = _named_session_path(session_opt, resume=resume) if session_opt else None
 
         # Get the available profiles
         available_profiles = services.get_profiles(profiles_path, extra_profiles_path=extra_profiles_path)
@@ -547,15 +612,16 @@ def validate(
             output_line_width=output_line_width,
         )
         # Record the validation in the sessions history (same history as batch
-        # runs, browsable with `sessions list/show`), unless opted out.
-        if not no_session:
+        # runs, browsable with `sessions list/show`) only when opted in.
+        if session_opt is not None:
             _record_single_validation_session(
                 validation_settings,
-                rocrate_uri=rocrate_uri,
+                rocrate_uri=detected.crate_paths[0],
                 results=results,
                 duration=time.time() - started,
                 profile_identifiers=list(profile_identifier),
                 no_auto_profile=no_auto_profile,
+                session_path=single_session_path,
             )
         if output_format == "json":
             _emit_json_report(
@@ -572,8 +638,226 @@ def validate(
         # using ctx.exit seems to raise an Exception that gets caught below,
         # so we use sys.exit instead.
         sys.exit(0 if is_valid else 1)
+    except click.UsageError:
+        # Usage errors are reported natively by Click (message + usage hint)
+        # instead of the generic "unexpected error" handler.
+        raise
     except Exception as e:
         handle_error(e, console)
+
+
+@dataclass
+class _DetectedInput:
+    """The outcome of the input auto-detection (see :func:`_detect_input`)."""
+
+    mode: str  # "single" | "batch"
+    crate_paths: list[str]  # the crates to validate
+    targets: list[str] = field(default_factory=list)  # normalized user inputs, keying the state file
+    scan_root: Path | None = None  # the collection root, when the input is one directory
+
+
+def _is_single_crate_uri(uri: str) -> bool:
+    """
+    Whether ``uri`` denotes one crate on its own: a remote URI, a local file
+    (zipped crate or detached metadata) or a directory holding its own
+    ``ro-crate-metadata.json``. A local directory without a metadata file is a
+    (potential) collection instead.
+    """
+    parsed = URI(str(uri))
+    if parsed.is_remote_resource():
+        return True
+    path = parsed.as_path()
+    if path.is_dir():
+        return (path / constants.ROCRATE_METADATA_FILE).exists()
+    return True  # local file: the URI callback restricts these to .zip/.json/.jsonld
+
+
+def _detect_input(rocrate_uris: list[str], *, batch: bool, batch_pattern: str) -> _DetectedInput:
+    """
+    Auto-detect the validation mode from the positional input(s).
+
+    - one URI that is a crate (zip, metadata file, remote URI or directory
+      with its own ``ro-crate-metadata.json``) → **single** mode;
+    - one directory without a metadata file → its crates are discovered
+      recursively and validated in **batch** mode;
+    - several URIs → an explicit list, validated in **batch** mode; a
+      collection directory in the list is expanded to the crates it contains;
+    - ``-b/--batch`` forces batch mode: every directory is scanned with
+      :func:`services.discover_ro_crates`, whether or not it is itself a crate.
+
+    The returned targets are the *user inputs* (normalized), not the discovered
+    crates, so the resume key stays stable when a collection gains new crates.
+    """
+    multiple = len(rocrate_uris) > 1
+    if batch_pattern != "*" and multiple:
+        raise click.UsageError(
+            "--batch-pattern applies to a directory scan; it cannot be combined with an explicit list of RO-Crates."
+        )
+
+    targets = services.normalize_state_targets(rocrate_uris)
+
+    # Single crate (auto-detected), unless -b forces a directory scan.
+    if not batch and not multiple and _is_single_crate_uri(rocrate_uris[0]):
+        return _DetectedInput(mode="single", crate_paths=[rocrate_uris[0]], targets=targets)
+
+    # Batch: expand every input into the crates it holds.
+    crate_paths: list[str] = []
+    scan_root: Path | None = None
+    for uri in rocrate_uris:
+        if not URI(str(uri)).is_remote_resource() and Path(uri).is_dir() and (batch or not _is_single_crate_uri(uri)):
+            scan_dir = Path(uri).resolve()
+            found = [str(p) for p in services.discover_ro_crates(scan_dir, pattern=batch_pattern)]
+            # An empty scan is an input error when the directory was auto-detected
+            # as a collection (probably a mistyped path); with an explicit
+            # -b/--batch it is a valid outcome, reported gracefully by the caller.
+            if not found and not batch:
+                raise click.BadParameter(f"No RO-Crate metadata found under: {scan_dir}", param_hint="RO-CRATE-URI")
+            crate_paths.extend(found)
+            if not multiple:
+                scan_root = scan_dir
+        else:
+            # A crate given directly (zip, metadata file, crate dir or remote URI).
+            crate_paths.append(str(uri))
+
+    # De-duplicate while preserving order (e.g. overlapping inputs).
+    crate_paths = list(dict.fromkeys(crate_paths))
+    return _DetectedInput(mode="batch", crate_paths=crate_paths, targets=targets, scan_root=scan_root)
+
+
+def _sanitize_session_name(name: str) -> str:
+    """Sanitize a user-supplied session name for use as a file name."""
+    slug = re.sub(r"[^\w.-]+", "-", name.strip()).strip("-.")
+    if not slug:
+        raise click.UsageError(f"Invalid session name: {name!r}")
+    return slug
+
+
+def _read_state_summary(state_path: Path) -> dict | None:
+    """The ``session`` header of a state file, or ``None`` when unreadable."""
+    try:
+        return json.loads(Path(state_path).read_text(encoding="utf-8")).get("session", {})
+    except Exception:  # missing, corrupt or unreadable: treat as absent
+        return None
+
+
+def _is_interrupted_state(state_path: Path) -> dict | None:
+    """The state summary when ``state_path`` holds an interrupted run, else ``None``."""
+    if not state_path.exists():
+        return None
+    summary = _read_state_summary(state_path)
+    if not summary:
+        return None
+    completed = summary.get("completed_crates") or 0
+    total = summary.get("total_crates") or 0
+    if summary.get("status") in ("in_progress", "interrupted") and completed < total:
+        return summary
+    return None
+
+
+def _named_session_path(session_name: str, *, resume: bool) -> Path:
+    """
+    Resolve (and guard) the file path of a named session.
+
+    An existing session with the same name is only reused when it is empty
+    (just created by ``sessions new``) or when ``--resume`` is given; anything
+    else is a usage error, so a permanent session is never silently overwritten.
+    """
+    name = _sanitize_session_name(session_name)
+    session_path = get_user_sessions_dir() / f"{name}.json"
+    if session_path.exists() and not resume:
+        summary = _read_state_summary(session_path)
+        if summary is None or (summary.get("total_crates") or 0) > 0:
+            raise click.UsageError(
+                f"Session '{name}' already exists: resume it with --resume "
+                f"(or `sessions resume {name}`), restart it with `sessions restart {name}`, "
+                "or pick another name."
+            )
+    return session_path
+
+
+def _resolve_batch_state(
+    batch_settings: ValidationSettings,
+    detected: _DetectedInput,
+    *,
+    batch_pattern: str,
+    session_opt: str | None,
+    resume: bool,
+    profile_identifiers: list[str],
+    no_auto_profile: bool,
+) -> tuple[Path, bool]:
+    """
+    Resolve the state file the batch writes to, returning ``(path, ephemeral)``.
+
+    Without ``--session`` the state is a temporary run-state (deleted on
+    completion, kept for ``--resume`` when interrupted). With ``--session`` the
+    state *is* the permanent session file — hash-derived when unnamed, or
+    ``sessions/<NAME>.json`` when a name is given.
+    """
+    if session_opt is None:
+        return (
+            services.resolve_run_state_path(
+                batch_settings,
+                detected.targets,
+                batch_pattern,
+                profile_identifiers=profile_identifiers,
+                no_auto_profile=no_auto_profile,
+            ),
+            True,
+        )
+    if session_opt == "":
+        return (
+            services.resolve_session_state_path(
+                batch_settings,
+                detected.targets,
+                batch_pattern,
+                profile_identifiers=profile_identifiers,
+                no_auto_profile=no_auto_profile,
+            ),
+            False,
+        )
+    return _named_session_path(session_opt, resume=resume), False
+
+
+def _decide_fresh(
+    console: Console,
+    state_path: Path,
+    *,
+    resume: bool,
+    no_resume: bool,
+    interactive: bool,
+) -> bool:
+    """
+    Decide whether the batch starts fresh or resumes an interrupted state.
+
+    ``--no-resume`` always starts fresh and ``--resume`` always resumes (when
+    there is something to resume). Without either flag, a matching interrupted
+    state triggers an interactive prompt; in non-interactive mode the run
+    starts fresh, so scripted runs stay predictable and reproducible.
+    """
+    if no_resume:
+        return True
+    interrupted = _is_interrupted_state(state_path)
+    if interrupted is None:
+        return False  # nothing to resume: a fresh run either way
+    if resume:
+        return False
+    completed = interrupted.get("completed_crates") or 0
+    total = interrupted.get("total_crates") or 0
+    if interactive:
+        stderr_console = Console(file=sys.stderr, no_color=console.no_color, width=console.width)
+        stderr_console.print(
+            f"[yellow]Found an interrupted validation matching this command "
+            f"({completed}/{total} crates already validated).[/yellow]"
+        )
+        return not click.confirm("Resume it? ('n' restarts from scratch)", default=True, err=True)
+    logger.info(
+        "Interrupted state found at %s (%d/%d crates) but running non-interactively: starting fresh. "
+        "Pass --resume to continue it.",
+        state_path,
+        completed,
+        total,
+    )
+    return True
 
 
 # Threads the CLI options through to the batch helpers; pylint counts these
@@ -587,18 +871,18 @@ def _run_batch_validation(
     no_auto_profile: bool,
     cache_max_age: int,
     verbose: bool,
-    rocrate_uri: str | Path,
+    detected: _DetectedInput,
     batch_pattern: str,
-    fresh: bool,
+    session_opt: str | None,
+    resume: bool,
+    no_resume: bool,
+    interactive: bool,
     output_format: str,
     output_file: Path | None,
     output_line_width: int | None,
 ) -> None:
     """Run batch validation end-to-end and exit with the aggregated status code."""
-    crate_paths = _discover_batch_crates(
-        rocrate_uri=rocrate_uri,
-        batch_pattern=batch_pattern,
-    )
+    crate_paths = detected.crate_paths
     if not crate_paths:
         console.print("[bold yellow]No RO-Crates found for batch validation.[/bold yellow]")
         sys.exit(0)
@@ -609,22 +893,27 @@ def _run_batch_validation(
         cache_max_age=cache_max_age,
         verbose=verbose,
     )
-    # The batch session is auto-managed: its location is derived deterministically
-    # from the scan target and settings, so re-running the same command resumes an
-    # interrupted session automatically (no user-supplied session file).
-    scan_root = Path(rocrate_uri).resolve()
-    session_path = services.resolve_batch_session_path(
+    # The state file location is derived deterministically from the user input
+    # and settings: a temporary run-state by default, the permanent session
+    # file with --session (written incrementally from the start, no promotion).
+    state_path, ephemeral = _resolve_batch_state(
         batch_settings,
-        scan_root,
-        batch_pattern,
+        detected,
+        batch_pattern=batch_pattern,
+        session_opt=session_opt,
+        resume=resume,
         profile_identifiers=profile_identifiers,
         no_auto_profile=no_auto_profile,
     )
+    fresh = _decide_fresh(console, state_path, resume=resume, no_resume=no_resume, interactive=interactive)
+
+    # Base directory used to render the crate paths relative (and shown as Input).
+    input_base = detected.scan_root or _common_base_path(crate_paths)
     _print_batch_header(
         console,
         count=len(crate_paths),
-        session_path=session_path,
-        input_path=scan_root,
+        session_path=None if ephemeral else state_path,
+        input_path=input_base,
         profile_identifiers=profile_identifiers,
         no_auto_profile=no_auto_profile,
     )
@@ -636,11 +925,12 @@ def _run_batch_validation(
         batch_validate_fn=services.batch_validate,
         settings=batch_settings,
         rocrate_uris=crate_paths,
-        session_path=session_path,
+        state_path=state_path,
         fresh=fresh,
+        ephemeral=ephemeral,
         profile_identifiers=profile_identifiers,
         no_auto_profile=no_auto_profile,
-        base_path=scan_root,
+        base_path=input_base,
     )
     # Writing a large report to a file can take a moment; show a spinner on
     # stderr while it happens (skipped when the summary is rendered to the
@@ -662,7 +952,8 @@ def _run_batch_validation(
     _report_batch_status(
         console,
         batch_result,
-        session_path=session_path,
+        state_path=state_path,
+        ephemeral=ephemeral,
         output_file=output_file,
         output_format=output_format,
     )
@@ -744,25 +1035,28 @@ def _record_single_validation_session(
     duration: float,
     profile_identifiers: list[str],
     no_auto_profile: bool,
+    session_path: Path | None = None,
 ) -> None:
     """
     Record a single-crate validation in the sessions history (best effort:
     a recording failure never fails the validation).
 
-    The session path is deterministic for (crate, profile selection, severity),
-    so re-validating the same target overwrites the previous history entry
-    instead of accumulating duplicates — the history keeps the latest outcome,
+    Without an explicit ``session_path`` (named session), the path is
+    deterministic for (crate, profile selection, severity), so re-validating
+    the same target overwrites the previous history entry instead of
+    accumulating duplicates — the history keeps the latest outcome,
     consistently with batch sessions and ``ValidationSession.validate``.
     """
     try:
         settings_obj = ValidationSettings.parse(dict(validation_settings))
         explicit_profiles = list(profile_identifiers) if profile_identifiers else None
-        session_path = services.resolve_single_crate_session_path(
-            settings_obj,
-            rocrate_uri,
-            profile_identifiers=explicit_profiles,
-            no_auto_profile=no_auto_profile,
-        )
+        if session_path is None:
+            session_path = services.resolve_single_crate_session_path(
+                settings_obj,
+                rocrate_uri,
+                profile_identifiers=explicit_profiles,
+                no_auto_profile=no_auto_profile,
+            )
         session = ValidationSession(
             validation_settings=settings_obj.to_dict() if hasattr(settings_obj, "to_dict") else {},
             crate_paths=[str(rocrate_uri)],
@@ -804,20 +1098,17 @@ def _build_batch_settings(
     return ValidationSettings.parse(batch_settings_dict)
 
 
-def _discover_batch_crates(
-    *,
-    rocrate_uri: str | Path,
-    batch_pattern: str,
-) -> list[str]:
-    """
-    Resolve the list of RO-Crate paths to validate in batch mode by scanning the
-    target directory. Auto-resume of an interrupted session is handled in the
-    services layer by comparing this discovered list against the saved session.
-    """
-    scan_dir = Path(rocrate_uri).resolve()
-    if not scan_dir.is_dir():
-        raise click.BadParameter(f"Batch target must be a directory: {scan_dir}", param_hint="RO-CRATE-URI")
-    return [str(p) for p in services.discover_ro_crates(scan_dir, pattern=batch_pattern)]
+def _common_base_path(crate_paths: list[str]) -> Path | None:
+    """The common parent directory of the (local) crate paths, when derivable."""
+    local = [p for p in crate_paths if not URI(str(p)).is_remote_resource()]
+    if not local:
+        return None
+    if len(local) == 1:
+        return Path(local[0]).resolve().parent
+    try:
+        return Path(os.path.commonpath([str(Path(p).resolve()) for p in local]))
+    except (ValueError, TypeError):
+        return None
 
 
 def _write_batch_report(
@@ -875,22 +1166,23 @@ def _print_batch_header(
     *,
     count: int,
     session_path: Path | None,
-    input_path: Path,
+    input_path: Path | None,
     profile_identifiers: list[str],
     no_auto_profile: bool,
 ) -> None:
     """
     Print the batch header on stderr (always): the number of crates found, the
-    session file, the input scanned and the profile selection. Shown before the
-    per-crate list so the relative crate paths printed during validation are
-    easy to interpret.
+    session file (only for --session runs), the input scanned and the profile
+    selection. Shown before the per-crate list so the relative crate paths
+    printed during validation are easy to interpret.
     """
     stderr_console = Console(file=sys.stderr, no_color=console.no_color, width=console.width)
     profiles, profiles_style = format_profile_selection(profile_identifiers, no_auto_profile)
     rows: list[tuple[str, str, str]] = []
     if session_path:
         rows.append(("Session", str(session_path), "cyan"))
-    rows.append(("Input", str(input_path), "cyan"))
+    if input_path:
+        rows.append(("Input", str(input_path), "cyan"))
     rows.append(("Profiles", profiles, profiles_style))
     render_batch_header(
         stderr_console,
@@ -903,13 +1195,14 @@ def _report_batch_status(
     console: Console,
     batch_result: BatchValidationResult,
     *,
-    session_path: Path | None,
+    state_path: Path | None,
+    ephemeral: bool,
     output_file: Path | None,
     output_format: str,
 ) -> None:
     """
     Print the final batch verdict on stderr, followed by a spaced block listing
-    where the report was saved (and the session, only when the run did not
+    where the report was saved (and the state file, only when the run did not
     complete and may need to be resumed).
 
     Everything is written to stderr so it never pollutes machine-readable output
@@ -921,10 +1214,11 @@ def _report_batch_status(
     rows: list[tuple[str, str, str, str]] = []  # (icon, label, path, path-style)
     if output_file:
         rows.append(("📄", f"Report ({output_format})", str(output_file), "bold cyan"))
-    # The session is only useful here if the run did not finish (so it can be
-    # resumed); when completed it is redundant with the header shown at the start.
-    if session_path and not batch_result.session.is_completed():
-        rows.append(("💾", "Session", str(session_path), "cyan"))
+    # The state file is only useful here if the run did not finish (so it can
+    # be resumed); when completed a run-state no longer exists and a session
+    # is redundant with the header shown at the start.
+    if state_path and not batch_result.session.is_completed():
+        rows.append(("💾", "Run state" if ephemeral else "Session", str(state_path), "cyan"))
     render_batch_footer(stderr_console, batch_result, rows)
 
 
@@ -977,30 +1271,69 @@ def _warn_if_remote_offline(console: Console, rocrate_uri: str | Path, offline: 
         )
 
 
+def _preflight_input_checks(
+    console: Console,
+    rocrate_uris: list[str],
+    *,
+    offline: bool,
+    no_cache: bool,
+    resume: bool,
+    no_resume: bool,
+    batch: bool,
+    batch_pattern: str,
+    session_opt: str | None = None,
+) -> _DetectedInput:
+    """
+    Run the pre-validation checks and resolve the input mode.
+
+    Rejects contradictory flag combinations, warns about remote targets in
+    offline mode, garbage-collects stale run-states (best effort, see
+    ``RUN_STATE_TTL_DAYS``) and auto-detects the validation mode from the
+    positional input(s); ``-b/--batch`` forces a directory scan.
+    """
+    # --no-cache and --offline are contradictory: offline mode requires a cache
+    # to serve requests from, while no-cache disables caching entirely.
+    if no_cache and offline:
+        raise click.UsageError(
+            "The --no-cache and --offline flags are mutually exclusive: "
+            "offline mode relies on the HTTP cache to serve resources."
+        )
+    if resume and no_resume:
+        raise click.UsageError("The --resume and --no-resume flags are mutually exclusive.")
+    # Validate the session name up front (before any directory scan) so a
+    # swallowed RO-CRATE-URI or a name clash fails fast with a native usage error.
+    if session_opt:
+        _named_session_path(session_opt, resume=resume)
+
+    for uri in rocrate_uris:
+        _warn_if_remote_offline(console, uri, offline)
+
+    services.cleanup_stale_run_states()
+
+    detected = _detect_input(rocrate_uris, batch=batch, batch_pattern=batch_pattern)
+    _check_batch_only_options(batch_mode=detected.mode == "batch", batch_pattern=batch_pattern)
+    return detected
+
+
 def _check_batch_only_options(
     *,
     batch_mode: bool,
     batch_pattern: str,
-    no_resume: bool,
 ) -> None:
     """
-    Reject batch-only options when batch mode is not enabled.
+    Reject batch-only options when the detected mode is not batch.
 
-    ``--batch-pattern`` and ``--no-resume`` only make sense in batch mode; using
-    them without ``-b/--batch`` is a usage error rather than a silently ignored
-    no-op.
+    ``--batch-pattern`` only makes sense when a directory is scanned for
+    crates; using it on a single-crate validation is a usage error rather than
+    a silently ignored no-op. The check runs *after* input auto-detection,
+    since batch mode is no longer implied by ``-b/--batch`` alone.
     """
     if batch_mode:
         return
-    misused = []
     if batch_pattern != "*":
-        misused.append("--batch-pattern")
-    if no_resume:
-        misused.append("--no-resume")
-    if misused:
-        joined = ", ".join(misused)
-        verb = "is" if len(misused) == 1 else "are"
-        raise click.UsageError(f"{joined} {verb} only valid in batch mode; enable it with -b/--batch.")
+        raise click.UsageError(
+            "--batch-pattern is only valid in batch mode (a directory scan); the given input is a single RO-Crate."
+        )
 
 
 def _parse_skip_checks(skip_checks: list[str] | None) -> list[str]:
