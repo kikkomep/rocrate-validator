@@ -27,6 +27,7 @@ import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from uuid import uuid4
 
 from rich.table import Table
 
@@ -100,6 +101,45 @@ def sessions_path(ctx):
     """
     console = ctx.obj["console"]
     console.print(str(get_user_sessions_dir()))
+
+
+@sessions.command("new")
+@click.argument("name", required=False)
+@click.pass_context
+def sessions_new(ctx, name: str | None = None):
+    """
+    Create an empty named validation session.
+
+    The session can then be filled with [bold orange1]validate --session-name <name>[/bold orange1]
+    or programmatically through the `ValidationSession` API. Without a NAME, a
+    timestamp-based one is generated.
+    """
+    console = ctx.obj["console"]
+    # Usage errors are raised before the try/except so Click reports them natively.
+    from rocrate_validator.cli.commands.validate import _sanitize_session_name  # noqa: PLC0415 - avoid import cycle
+
+    session_name = (
+        _sanitize_session_name(name)
+        if name
+        else f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}-{uuid4().hex[:8]}"
+    )
+    session_path = get_user_sessions_dir() / f"{session_name}.json"
+    if session_path.exists():
+        raise click.UsageError(
+            f"Session '{session_name}' already exists; pick another name or remove it "
+            f"first with `sessions rm {session_name}`."
+        )
+    try:
+        session = BatchSession(validation_settings={}, crate_paths=[], session_path=session_path)
+        session.save()
+        console.print(f"[green]Created session[/green] [bold cyan]{session_name}[/bold cyan]")
+        console.print(f"[dim]{session_path}[/dim]")
+        console.print(
+            "Fill it with: "
+            f"[bold orange1]rocrate-validator validate --session-name {session_name} <RO-CRATE-URI>[/bold orange1]"
+        )
+    except Exception as e:
+        handle_error(e, console)
 
 
 @sessions.command("show")
