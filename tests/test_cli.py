@@ -13,9 +13,11 @@
 # limitations under the License.
 
 import json
+import os
 import re
 import shutil
 import tempfile
+import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -593,8 +595,41 @@ def test_batch_validate_valid_crates(cli_runner: CliRunner):
     assert "Validation Summary" in result.output
 
 
-def test_batch_validate_auto_session(cli_runner: CliRunner):
-    """Batch validation auto-manages a session file under the user sessions dir."""
+def test_batch_validate_session_opt_in(cli_runner: CliRunner, isolated_sessions_dir):
+    """With --session, the batch is recorded as a permanent session; the runs dir stays clean."""
+    valid_dir = str(ValidROC().wrroc_paper_long_date.parent)
+    result = cli_runner.invoke(
+        cli,
+        [
+            "--no-interactive",
+            "validate",
+            "--session",
+            "--batch",
+            valid_dir,
+            "--batch-pattern",
+            "wrroc-paper-long-date",
+            "--profile-identifier",
+            "ro-crate-1.1",
+            "--no-paging",
+            "--no-resume",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    # A session file must have been created under the user sessions directory.
+    sessions = list(isolated_sessions_dir.glob("*.json"))
+    assert sessions, "no session file was created despite --session"
+    session_data = json.loads(max(sessions, key=lambda p: p.stat().st_mtime).read_text())
+    assert session_data["session"]["status"] == "completed"
+    assert session_data["session"]["completed_crates"] >= 1
+    assert session_data["crates"][0]["status"] == "completed"
+    # The profile used is recorded per crate in the session.
+    assert session_data["crates"][0]["profiles"] == ["ro-crate-1.1"]
+    # With --session no temporary run-state is created at all.
+    assert not list(get_user_runs_dir().glob("*.json"))
+
+
+def test_batch_validate_no_session_by_default(cli_runner: CliRunner, isolated_sessions_dir):
+    """Without --session, a completed batch leaves neither a session nor a run-state behind."""
     valid_dir = str(ValidROC().wrroc_paper_long_date.parent)
     result = cli_runner.invoke(
         cli,
@@ -608,20 +643,12 @@ def test_batch_validate_auto_session(cli_runner: CliRunner):
             "--profile-identifier",
             "ro-crate-1.1",
             "--no-paging",
-            # No --session-file / --resume: the session is always auto-managed.
             "--no-resume",
         ],
     )
     assert result.exit_code == 0, result.output
-    # A session file must have been auto-created under the user sessions directory.
-    sessions = list(get_user_sessions_dir().glob("*.json"))
-    assert sessions, "no auto-managed session file was created"
-    session_data = json.loads(max(sessions, key=lambda p: p.stat().st_mtime).read_text())
-    assert session_data["session"]["status"] == "completed"
-    assert session_data["session"]["completed_crates"] >= 1
-    assert session_data["crates"][0]["status"] == "completed"
-    # The profile used is recorded per crate in the session.
-    assert session_data["crates"][0]["profiles"] == ["ro-crate-1.1"]
+    assert not list(isolated_sessions_dir.glob("*.json")), "no session must be recorded without --session"
+    assert not list(get_user_runs_dir().glob("*.json")), "the run-state must be deleted on completion"
 
 
 def test_batch_validate_json_output(cli_runner: CliRunner, tmp_path):
@@ -822,7 +849,7 @@ def test_batch_session_path_reflects_profile_selection(tmp_path):
 
 
 def test_batch_footer_reports_saved_paths(cli_runner: CliRunner, tmp_path):
-    """The end-of-batch footer reports where the report file and session were saved."""
+    """The end-of-batch footer reports where the report file was saved."""
     output_file = tmp_path / "report.txt"
     valid_dir = str(ValidROC().wrroc_paper_long_date.parent)
     result = cli_runner.invoke(
@@ -847,12 +874,25 @@ def test_batch_footer_reports_saved_paths(cli_runner: CliRunner, tmp_path):
     # The footer (on stderr) names the saved artifacts and the input scanned.
     assert "Report (text)" in result.stderr
     assert str(output_file) in result.stderr
-    assert "Session" in result.stderr
-    assert ".json" in result.stderr
+    # Without --session no session path is advertised (the run-state is
+    # ephemeral and already deleted at this point).
+    assert "Session" not in result.stderr
     assert "Input" in result.stderr
     # Per-crate progress lines show the crate relative to the input path
     # (the bare crate name, not an absolute path).
     assert "] wrroc-paper-long-date" in result.stderr
+
+
+def test_batch_header_shows_session_with_opt_in(cli_runner: CliRunner, isolated_sessions_dir, tmp_path):
+    """With --session, the header advertises the session file location."""
+    coll, _ = _make_collection(tmp_path, n=1)
+    result = cli_runner.invoke(
+        cli,
+        ["--no-interactive", "validate", str(coll), "--session-name", "header-check", *_VALIDATE_OPTS],
+    )
+    assert result.exit_code == 0, result.output
+    assert "Session" in result.stderr
+    assert "header-check.json" in result.stderr
 
 
 def test_batch_validate_csv_output(cli_runner: CliRunner, tmp_path):
@@ -1115,6 +1155,74 @@ def test_force_batch_on_crate_dir(cli_runner: CliRunner, isolated_sessions_dir):
     assert "Total: 1 crates" in result.output
 
 
+def test_resume_and_no_resume_mutually_exclusive(cli_runner: CliRunner):
+    result = cli_runner.invoke(
+        cli,
+        ["--no-interactive", "validate", str(ValidROC().wrroc_paper_long_date), "--resume", "--no-resume"],
+    )
+    assert result.exit_code != 0
+    assert "mutually exclusive" in result.output.lower()
+
+
+def test_single_crate_resume_is_noop_with_warning(cli_runner: CliRunner, isolated_sessions_dir):
+    """--resume on a single-crate validation warns and runs fresh (validation is atomic)."""
+    crate = str(ValidROC().wrroc_paper_long_date)
+    result = cli_runner.invoke(cli, ["--no-interactive", "validate", crate, "--resume", *_VALIDATE_OPTS])
+    assert result.exit_code == 0, result.output
+    assert "no effect" in result.output.lower()
+
+
+def test_resume_continues_interrupted_run_state(cli_runner: CliRunner, isolated_sessions_dir, tmp_path, monkeypatch):
+    """--resume picks up a matching interrupted run-state and validates only the pending crates."""
+    coll, crates = _make_collection(tmp_path, n=2)
+    state_path = tmp_path / "run-state.json"
+    monkeypatch.setattr(services, "resolve_run_state_path", lambda *a, **k: state_path)
+    _write_interrupted_state(state_path, crates, completed_count=1)
+
+    result = cli_runner.invoke(cli, ["--no-interactive", "validate", str(coll), "--resume", *_VALIDATE_OPTS])
+    assert result.exit_code == 0, result.output
+    # Only the pending crate is validated; the completed one is carried over.
+    assert "[1/1]" in result.output
+    assert "Total: 2 crates" in result.output
+    # On completion the ephemeral run-state is deleted.
+    assert not state_path.exists()
+
+
+def test_interrupted_run_state_starts_fresh_non_interactive(
+    cli_runner: CliRunner, isolated_sessions_dir, tmp_path, monkeypatch
+):
+    """Without --resume, a matching interrupted state is ignored in non-interactive mode (fresh run)."""
+    coll, crates = _make_collection(tmp_path, n=2)
+    state_path = tmp_path / "run-state.json"
+    monkeypatch.setattr(services, "resolve_run_state_path", lambda *a, **k: state_path)
+    _write_interrupted_state(state_path, crates, completed_count=1)
+
+    result = cli_runner.invoke(cli, ["--no-interactive", "validate", str(coll), *_VALIDATE_OPTS])
+    assert result.exit_code == 0, result.output
+    # Every crate is re-validated from scratch.
+    assert "[1/2]" in result.output
+    assert "[2/2]" in result.output
+    assert not state_path.exists()
+
+
+def test_resume_key_survives_new_crates_in_collection(
+    cli_runner: CliRunner, isolated_sessions_dir, tmp_path, monkeypatch
+):
+    """A crate added to the collection after the interruption joins the resumed run as pending."""
+    coll, crates = _make_collection(tmp_path, n=2)
+    state_path = tmp_path / "run-state.json"
+    monkeypatch.setattr(services, "resolve_run_state_path", lambda *a, **k: state_path)
+    _write_interrupted_state(state_path, crates, completed_count=1)
+    # A new crate lands in the collection between the interruption and the resume.
+    shutil.copytree(ValidROC().wrroc_paper_long_date, coll / "crate-late")
+
+    result = cli_runner.invoke(cli, ["--no-interactive", "validate", str(coll), "--resume", *_VALIDATE_OPTS])
+    assert result.exit_code == 0, result.output
+    # The completed crate is carried over; the pending one and the new one are validated.
+    assert "[2/2]" in result.output
+    assert "Total: 3 crates" in result.output
+
+
 def test_run_state_key_is_input_anchored(tmp_path):
     """The run-state key derives from the user input, not from the discovered crates."""
     settings = ValidationSettings.parse({"rocrate_uri": ".", "profile_identifier": "ro-crate"})
@@ -1138,6 +1246,133 @@ def test_run_state_key_is_input_anchored(tmp_path):
     # Run-states and unnamed sessions live in their own directories.
     assert services.resolve_run_state_path(settings, targets).parent == get_user_runs_dir()
     assert services.resolve_session_state_path(settings, targets).parent == get_user_sessions_dir()
+
+
+def test_named_session_created_and_guarded(cli_runner: CliRunner, isolated_sessions_dir, tmp_path):
+    """--session-name NAME creates sessions/<NAME>.json; an existing session is never silently overwritten."""
+    coll, _ = _make_collection(tmp_path, n=2)
+    args = ["--no-interactive", "validate", str(coll), *_VALIDATE_OPTS]
+
+    result = cli_runner.invoke(cli, [*args, "--session-name", "named-run"])
+    assert result.exit_code == 0, result.output
+    session_file = isolated_sessions_dir / "named-run.json"
+    assert session_file.exists()
+    assert json.loads(session_file.read_text())["session"]["status"] == "completed"
+
+    # Re-running with the same name without --resume is a usage error.
+    result = cli_runner.invoke(cli, [*args, "--session-name", "named-run"])
+    assert result.exit_code != 0
+    assert "already exists" in result.output.lower()
+
+    # With --resume the (completed) session is re-run into the same file.
+    result = cli_runner.invoke(cli, [*args, "--session-name", "named-run", "--resume"])
+    assert result.exit_code == 0, result.output
+    assert session_file.exists()
+
+
+def test_session_flag_does_not_swallow_target(cli_runner: CliRunner, isolated_sessions_dir, tmp_path):
+    """-S is a boolean flag: the target after it stays the RO-CRATE-URI, never a session name."""
+    coll, _ = _make_collection(tmp_path, n=2)
+    result = cli_runner.invoke(cli, ["--no-interactive", "validate", "--session", str(coll), *_VALIDATE_OPTS])
+    assert result.exit_code == 0, result.output
+    # The collection was validated and recorded as an auto-named session.
+    sessions = list(isolated_sessions_dir.glob("*.json"))
+    assert len(sessions) == 1
+    assert json.loads(sessions[0].read_text())["session"]["total_crates"] == 2
+
+
+def test_interrupted_session_is_resumable_via_sessions_resume(cli_runner: CliRunner, isolated_sessions_dir, tmp_path):
+    """An interrupted --session run persists in the sessions dir and `sessions resume` completes it."""
+    _, crates = _make_collection(tmp_path, n=2)
+    session_file = isolated_sessions_dir / "halfway.json"
+    _write_interrupted_state(session_file, crates, completed_count=1)
+
+    result = cli_runner.invoke(cli, ["--no-interactive", "sessions", "resume", "halfway"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(session_file.read_text())
+    assert data["session"]["status"] == "completed"
+    assert data["session"]["completed_crates"] == 2
+    # The permanent session survives its own completion.
+    assert session_file.exists()
+
+
+def test_sessions_new_and_fill(cli_runner: CliRunner, isolated_sessions_dir):
+    """`sessions new` creates an empty named session that `validate --session-name <name>` then fills."""
+    result = cli_runner.invoke(cli, ["--no-interactive", "sessions", "new", "prepared"])
+    assert result.exit_code == 0, result.output
+    session_file = isolated_sessions_dir / "prepared.json"
+    assert session_file.exists()
+    assert json.loads(session_file.read_text())["session"]["total_crates"] == 0
+
+    # The same name cannot be created twice.
+    result = cli_runner.invoke(cli, ["--no-interactive", "sessions", "new", "prepared"])
+    assert result.exit_code != 0
+    assert "already exists" in result.output.lower()
+
+    # An empty named session is filled (not rejected) by validate --session-name <name>.
+    crate = str(ValidROC().wrroc_paper_long_date)
+    result = cli_runner.invoke(
+        cli, ["--no-interactive", "validate", crate, "--session-name", "prepared", *_VALIDATE_OPTS]
+    )
+    assert result.exit_code == 0, result.output
+    data = json.loads(session_file.read_text())
+    assert data["session"]["total_crates"] == 1
+    assert data["session"]["status"] == "completed"
+
+
+def test_stale_run_states_are_garbage_collected(cli_runner: CliRunner, isolated_sessions_dir):
+    """Run-states older than the TTL are removed at the start of a validate run; recent ones stay."""
+    runs_dir = get_user_runs_dir()
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    stale = runs_dir / "stale.json"
+    recent = runs_dir / "recent.json"
+    stale.write_text("{}", encoding="utf-8")
+    recent.write_text("{}", encoding="utf-8")
+    forty_days_ago = time.time() - 40 * 24 * 3600
+    os.utime(stale, (forty_days_ago, forty_days_ago))
+
+    crate = str(ValidROC().wrroc_paper_long_date)
+    result = cli_runner.invoke(cli, ["--no-interactive", "validate", crate, *_VALIDATE_OPTS])
+    assert result.exit_code == 0, result.output
+    assert not stale.exists(), "stale run-states must be garbage-collected"
+    assert recent.exists(), "recent run-states must be kept"
+
+
+def test_sessions_clear_runs(cli_runner: CliRunner, isolated_sessions_dir):
+    """`sessions clear --runs` empties the run-states directory."""
+    runs_dir = get_user_runs_dir()
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    (runs_dir / "leftover.json").write_text("{}", encoding="utf-8")
+
+    result = cli_runner.invoke(cli, ["--no-interactive", "sessions", "clear", "--runs", "--yes"])
+    assert result.exit_code == 0, result.output
+    assert "1 run-state(s)" in result.output
+    assert not list(runs_dir.glob("*.json"))
+
+
+def test_decide_fresh_interactive_prompt(tmp_path, monkeypatch):
+    """The interactive prompt resumes on confirmation and restarts otherwise."""
+    import rich_click as click_mod
+
+    from rocrate_validator.cli.commands.validate import _decide_fresh
+    from rocrate_validator.utils.io_helpers.output.console import Console as RVConsole
+
+    console = RVConsole()
+    state_path = tmp_path / "state.json"
+    _write_interrupted_state(state_path, ["/tmp/a", "/tmp/b"], completed_count=1)
+
+    # No interrupted state → fresh-equivalent (nothing to resume, no prompt).
+    assert _decide_fresh(console, tmp_path / "missing.json", resume=False, no_resume=False, interactive=True) is False
+    # Explicit flags bypass the prompt.
+    assert _decide_fresh(console, state_path, resume=True, no_resume=False, interactive=True) is False
+    assert _decide_fresh(console, state_path, resume=False, no_resume=True, interactive=True) is True
+    # Interactive: confirm → resume; decline → fresh.
+    monkeypatch.setattr(click_mod, "confirm", lambda *a, **k: True)
+    assert _decide_fresh(console, state_path, resume=False, no_resume=False, interactive=True) is False
+    monkeypatch.setattr(click_mod, "confirm", lambda *a, **k: False)
+    assert _decide_fresh(console, state_path, resume=False, no_resume=False, interactive=True) is True
+    # Non-interactive: predictable fresh run.
+    assert _decide_fresh(console, state_path, resume=False, no_resume=False, interactive=False) is True
 
 
 def _write_fake_session(sessions_dir, session_id, *, status, total, completed, failed, paths):
@@ -1185,13 +1420,11 @@ def test_sessions_path(cli_runner: CliRunner, isolated_sessions_dir):
     assert str(isolated_sessions_dir) in result.output
 
 
-def test_single_validate_records_session(cli_runner: CliRunner, isolated_sessions_dir):
-    """A single-crate validation is recorded in the sessions history (mode: single)."""
+def test_single_validate_records_session_opt_in(cli_runner: CliRunner, isolated_sessions_dir):
+    """A single-crate validation is recorded in the history only with --session (mode: single)."""
     crate = str(ValidROC().wrroc_paper_long_date)
-    result = cli_runner.invoke(
-        cli,
-        ["--no-interactive", "validate", crate, "--no-paging", "-p", "ro-crate-1.1", "--skip-availability-check"],
-    )
+    args = ["--no-interactive", "validate", crate, "--no-paging", "-p", "ro-crate-1.1", "--skip-availability-check"]
+    result = cli_runner.invoke(cli, [*args, "--session"])
     assert result.exit_code == 0, result.output
     session_files = list(isolated_sessions_dir.glob("*.json"))
     assert len(session_files) == 1, "the validation must be recorded in the sessions history"
@@ -1202,16 +1435,13 @@ def test_single_validate_records_session(cli_runner: CliRunner, isolated_session
     assert data["crates"][0]["profiles"] == ["ro-crate-1.1"]
 
     # re-validating the same target overwrites the same session file
-    result = cli_runner.invoke(
-        cli,
-        ["--no-interactive", "validate", crate, "--no-paging", "-p", "ro-crate-1.1", "--skip-availability-check"],
-    )
+    result = cli_runner.invoke(cli, [*args, "--session"])
     assert result.exit_code == 0, result.output
     assert list(isolated_sessions_dir.glob("*.json")) == session_files
 
 
-def test_single_validate_no_session_opt_out(cli_runner: CliRunner, isolated_sessions_dir):
-    """--no-session skips recording the validation in the history."""
+def test_single_validate_no_session_by_default(cli_runner: CliRunner, isolated_sessions_dir):
+    """Without --session, a single-crate validation is not recorded in the history."""
     crate = str(ValidROC().wrroc_paper_long_date)
     result = cli_runner.invoke(
         cli,
@@ -1223,11 +1453,20 @@ def test_single_validate_no_session_opt_out(cli_runner: CliRunner, isolated_sess
             "-p",
             "ro-crate-1.1",
             "--skip-availability-check",
-            "--no-session",
         ],
     )
     assert result.exit_code == 0, result.output
     assert not list(isolated_sessions_dir.glob("*.json"))
+
+
+def test_no_session_flag_removed(cli_runner: CliRunner):
+    """--no-session no longer exists: sessions are opt-in via --session."""
+    result = cli_runner.invoke(
+        cli,
+        ["--no-interactive", "validate", str(ValidROC().wrroc_paper_long_date), "--no-session"],
+    )
+    assert result.exit_code != 0
+    assert "no such option" in result.output.lower()
 
 
 def test_sessions_show_requires_id_non_interactive(cli_runner: CliRunner, isolated_sessions_dir):
@@ -1253,7 +1492,7 @@ def test_validate_stats_removed(cli_runner: CliRunner):
 
 
 def test_validate_then_sessions_report_last(cli_runner: CliRunner, isolated_sessions_dir, tmp_path):
-    """The one-command CI flow: validate --batch, then report the last session with --last."""
+    """The one-command CI flow: validate --session --batch, then report the last session with --last."""
     output_file = tmp_path / "report.md"
     valid_dir = str(ValidROC().wrroc_paper_long_date.parent)
     result = cli_runner.invoke(
@@ -1261,6 +1500,7 @@ def test_validate_then_sessions_report_last(cli_runner: CliRunner, isolated_sess
         [
             "--no-interactive",
             "validate",
+            "--session",
             "--batch",
             valid_dir,
             "--batch-pattern",
