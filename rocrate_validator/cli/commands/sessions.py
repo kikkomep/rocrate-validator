@@ -51,7 +51,7 @@ from rocrate_validator.utils.io_helpers.output.text.statistics import (
     render_report_md,
     render_statistics,
 )
-from rocrate_validator.utils.paths import get_user_sessions_dir
+from rocrate_validator.utils.paths import get_user_runs_dir, get_user_sessions_dir
 
 logger = logging.getLogger(__name__)
 
@@ -640,6 +640,13 @@ def sessions_list(ctx, status_filter: str | None = None, as_json: bool = False):
     help="Remove only sessions whose validation has completed",
 )
 @click.option(
+    "--runs",
+    "clear_runs",
+    is_flag=True,
+    default=False,
+    help="Also empty the run-states directory (interrupted runs kept for `validate --resume`)",
+)
+@click.option(
     "-y",
     "--yes",
     is_flag=True,
@@ -652,49 +659,78 @@ def sessions_clear(
     ids: tuple[str, ...] = (),
     clear_all: bool = False,
     completed_only: bool = False,
+    clear_runs: bool = False,
     yes: bool = False,
 ):
     """
     Remove stored validation sessions (alias: `rm`).
 
     Pass one or more session IDs (the short ID shown by `sessions list` is enough),
-    or use --completed / --all to select sessions in bulk.
+    or use --completed / --all to select sessions in bulk. --runs additionally
+    removes the temporary run-states of interrupted `validate` runs (they are
+    otherwise garbage-collected automatically after a while).
     """
     console = ctx.obj["console"]
     interactive = ctx.obj.get("interactive", False)
     # Raise usage errors before the try/except so Click reports them natively
     # instead of routing them through the generic "unexpected error" handler.
-    if not ids and not clear_all and not completed_only:
-        raise click.UsageError("Specify one or more session IDs, or use --completed or --all.")
+    if not ids and not clear_all and not completed_only and not clear_runs:
+        raise click.UsageError("Specify one or more session IDs, or use --completed, --all or --runs.")
 
     exit_code = 0
     try:
-        summaries = _collect_sessions()
-        targets = _select_sessions_to_clear(summaries, ids=ids, clear_all=clear_all, completed_only=completed_only)
+        targets = (
+            _select_sessions_to_clear(_collect_sessions(), ids=ids, clear_all=clear_all, completed_only=completed_only)
+            if (ids or clear_all or completed_only)
+            else []
+        )
+        run_files = sorted(get_user_runs_dir().glob("*.json")) if clear_runs else []
 
-        if not targets:
+        if not targets and not run_files:
             console.print("[green]No matching sessions to remove.[/green]")
             return
 
-        console.print(f"[bold]Sessions to remove:[/bold] [cyan]{len(targets)}[/cyan]")
-        proceed = yes
-        if not yes:
-            if not interactive:
-                console.print("[yellow]Use --yes to remove sessions in non-interactive mode.[/yellow]")
-                exit_code = 1
-            elif click.confirm(f"Remove {len(targets)} session(s)?", default=False):
-                proceed = True
-            else:
-                console.print("Aborted.")
-
+        proceed, exit_code = _confirm_clear(
+            console, interactive=interactive, yes=yes, targets=targets, run_files=run_files
+        )
         if proceed:
             removed = _remove_sessions(console, targets)
-            console.print(f"[green]Removed {removed} session(s).[/green]")
+            removed_runs = _remove_run_states(console, run_files)
+            summary = [f"{removed} session(s)"] if (targets or not run_files) else []
+            if run_files:
+                summary.append(f"{removed_runs} run-state(s)")
+            console.print(f"[green]Removed {' and '.join(summary)}.[/green]")
     except Exception as e:
         handle_error(e, console)
         return
     if exit_code:
         ctx.exit(exit_code)
+
+
+def _confirm_clear(
+    console, *, interactive: bool, yes: bool, targets: list[dict], run_files: list[Path]
+) -> tuple[bool, int]:
+    """
+    Report what `sessions clear` is about to remove and ask for confirmation.
+
+    Returns ``(proceed, exit_code)``: without ``--yes``, confirmation is asked
+    interactively, while non-interactive runs refuse to delete (exit code 1).
+    """
+    what = []
+    if targets:
+        what.append(f"[cyan]{len(targets)}[/cyan] session(s)")
+    if run_files:
+        what.append(f"[cyan]{len(run_files)}[/cyan] run-state(s)")
+    console.print(f"[bold]To remove:[/bold] {' and '.join(what)}")
+    if yes:
+        return True, 0
+    if not interactive:
+        console.print("[yellow]Use --yes to remove sessions in non-interactive mode.[/yellow]")
+        return False, 1
+    if click.confirm("Proceed?", default=False):
+        return True, 0
+    console.print("Aborted.")
+    return False, 0
 
 
 def _remove_sessions(console, targets: list[dict]) -> int:
@@ -707,6 +743,19 @@ def _remove_sessions(console, targets: list[dict]) -> int:
         except OSError as e:
             logger.debug("Could not remove session %s: %s", s["file"], e)
             console.print(f"[red]Failed to remove {s['id'][:12]}: {e}[/red]")
+    return removed
+
+
+def _remove_run_states(console, run_files: list[Path]) -> int:
+    """Delete the given run-state files, returning how many were removed."""
+    removed = 0
+    for run_file in run_files:
+        try:
+            run_file.unlink()
+            removed += 1
+        except OSError as e:
+            logger.debug("Could not remove run-state %s: %s", run_file, e)
+            console.print(f"[red]Failed to remove {run_file.name}: {e}[/red]")
     return removed
 
 
