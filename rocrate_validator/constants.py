@@ -97,7 +97,20 @@ VALID_REQUIREMENT_LEVELS_TYPES = typing.Literal[
     "RECOMMENDED",
 ]
 
-# Current JSON output format
+# Stands in for the crate URI when validating an in-memory metadata dictionary,
+# which has no crate on disk to point at. Deliberately path-like and without a
+# scheme, as the placeholder that preceded it happened to be.
+METADATA_DICT_URI = "<metadata-dict>"
+
+# Schema version of the `v2` machine-readable report (the default one), carried
+# by `meta.report_schema_version`. Naming convention across the codebase:
+# `*_version` alone identifies the *tool*, `*_schema_version` a *data schema*.
+REPORT_SCHEMA_VERSION = "2.0"
+
+# Schema version of the legacy JSON report, kept for the reports emitted with
+# `--json-schema legacy`. Frozen on purpose: it is a copy of the value the
+# legacy format has always carried, so that evolving the v2 report can never
+# shift the legacy one.
 JSON_OUTPUT_FORMAT_VERSION = "0.2"
 
 # HTTP Status Codes

@@ -163,7 +163,7 @@ class ValidationSettings:
         Convert the ValidationSettings to a dictionary
         """
         result = asdict(self)
-        result["rocrate_uri"] = str(self.rocrate_uri)
+        result["rocrate_uri"] = str(self.rocrate_uri) if self.rocrate_uri else None
         result.pop("metadata_dict", None)  # exclude metadata_dict from the dict representation
         # Remove disable_crate_download from the dict representation
         result.pop("disable_remote_crate_download", None)
@@ -189,6 +189,14 @@ class ValidationSettings:
         :param value: The RO-Crate URI.
         :type value: Union[str, Path, URI]
         """
+        # ``rocrate_uri`` is declared as a field and redefined as a property, so
+        # constructing the settings without a URI — as batch mode does, where the
+        # URI is set per crate — hands the setter the class-level property object
+        # itself. Left alone it would be stringified into the settings (repr and
+        # memory address included) and surface in the reports.
+        if isinstance(value, property):
+            self._rocrate_uri = None  # type: ignore[assignment]
+            return
         if not value:
             raise ValueError("Invalid RO-Crate URI")
         self._rocrate_uri: URI = URI(str(value))

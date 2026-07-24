@@ -200,6 +200,11 @@ def __initialise_validator__(
     # if settings is a dict, convert to ValidationSettings
     settings = ValidationSettings.parse(settings)
 
+    # Validating an in-memory metadata dictionary needs no crate on disk: there
+    # is no URI to resolve, so the source-resolution below does not apply.
+    if getattr(settings, "metadata_dict", None) is not None:
+        return _build_validator(settings, subscribers, cache=cache)
+
     # parse the rocrate path
     assert settings.rocrate_uri is not None, "RO-Crate URI is required"
     rocrate_path: URI = URI(str(settings.rocrate_uri))

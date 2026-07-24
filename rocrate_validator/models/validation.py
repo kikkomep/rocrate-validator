@@ -20,6 +20,7 @@ from urllib.error import HTTPError
 
 from rdflib import Graph
 
+from rocrate_validator.constants import METADATA_DICT_URI
 from rocrate_validator.errors import (
     ProfileNotFound,
     ROCrateMetadataNotFoundError,
@@ -432,6 +433,12 @@ class ValidationContext:
         """
         rocrate_uri = self.settings.rocrate_uri
         if rocrate_uri is None:
+            # Metadata-dict mode validates a document held in memory: there is
+            # no crate to point at, so a stable placeholder stands in.
+            if getattr(self.settings, "metadata_dict", None) is not None:
+                from rocrate_validator.utils.uri import URI as _URI  # noqa: PLC0415 - avoid circular import
+
+                return _URI(METADATA_DICT_URI)
             raise ValueError("RO-Crate URI is not set")
         return rocrate_uri
 
