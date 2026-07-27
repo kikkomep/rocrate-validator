@@ -428,23 +428,24 @@ class BatchValidationResult:
     def failed_entries(self) -> list[BatchCrateEntry]:
         return [e for e in self.session.crates if e.status in ("completed", "failed") and not e.passed]
 
-    def to_dict(self) -> dict:
-        session_dict = self.session.to_dict()
-        session_dict["results"] = [
-            {
-                "crate": entry.path,
-                "profiles": entry.profiles or [],
-                "passed": entry.passed,
-                "issues": entry.issues or [],
-                "statistics": entry.statistics,
-            }
-            for entry in self.session.crates
-        ]
-        session_dict["batch_passed"] = self.passed()
-        return session_dict
+    def to_dict(self, verbose: bool = False) -> dict:
+        """
+        The batch outcome as the ``v2`` report — the same document the CLI
+        writes, and the same one a single-crate validation produces with one
+        entry in ``crates``.
 
-    def to_json(self, path: Path | None = None) -> str:
-        result = json.dumps(self.to_dict(), indent=4, cls=CustomEncoder)
+        The pre-v2 envelope (with its ``results``/``batch_passed`` keys) is no
+        longer produced here: it lives in the legacy JSON renderer, reachable
+        from the CLI with ``--json-schema legacy``.
+        """
+        from rocrate_validator.utils.io_helpers.output.json.report import (  # noqa: PLC0415 - avoid circular import
+            build_report,
+        )
+
+        return build_report(self.session, passed=self.passed(), verbose=verbose)
+
+    def to_json(self, path: Path | None = None, verbose: bool = False) -> str:
+        result = json.dumps(self.to_dict(verbose=verbose), indent=4, cls=CustomEncoder)
         if path:
             with Path(path).open("w", encoding="utf-8") as f:
                 f.write(result)

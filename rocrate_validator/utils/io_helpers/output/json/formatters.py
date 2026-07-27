@@ -158,9 +158,28 @@ def format_batch_validation_result(
     console_options: ConsoleOptions | None = None,  # pylint: disable=unused-argument
 ) -> str:
     """
-    Format a BatchValidationResult as a JSON string.
+    Format a BatchValidationResult as a JSON string, in the legacy schema.
+
+    This is the batch envelope as it was before the reports were unified, kept
+    for ``--json-schema legacy``. It is built here, and not from
+    ``BatchValidationResult.to_dict()`` (which now returns the v2 report), so
+    that evolving the v2 report can never shift the legacy one underneath its
+    consumers. Frozen on purpose — including the ``results`` array, redundant
+    with ``crates``, and the bare ``meta.version``.
     """
-    json_output = data.to_dict()
+    session = data.session
+    json_output = session.to_dict()
+    json_output["results"] = [
+        {
+            "crate": entry.path,
+            "profiles": entry.profiles or [],
+            "passed": entry.passed,
+            "issues": entry.issues or [],
+            "statistics": entry.statistics,
+        }
+        for entry in session.crates
+    ]
+    json_output["batch_passed"] = data.passed()
     json_output["meta"] = {
         "generated_by": "rocrate-validator",
         "version": get_version(),
