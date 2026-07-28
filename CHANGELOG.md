@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.3] - 2026-07-28
+
+Full changelog: https://github.com/crs4/rocrate-validator/compare/0.11.2...0.11.3
+
+### 🐛 Fixed
+
+- fix(cli): disable Rich word-wrap in the JSON validation report to prevent literal newlines inside quoted strings that produced invalid JSON ([ab66c773](https://github.com/crs4/rocrate-validator/commit/ab66c773))
+
 ## [0.11.2] - 2026-06-25
 
 Full changelog: https://github.com/crs4/rocrate-validator/compare/0.11.1...0.11.2
