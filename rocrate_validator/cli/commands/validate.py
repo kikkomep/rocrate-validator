@@ -670,7 +670,10 @@ def _emit_json_report(
     with output_file.open("w", encoding="utf-8") if output_file else nullcontext(sys.stdout) as f:
         out = Console(width=output_line_width, file=f)
         out.register_formatter(JSONOutputFormatter())
-        out.print(results)
+        # Disable word-wrap/cropping: Rich would otherwise insert literal line
+        # breaks into long string values (e.g. messages, URLs), producing
+        # invalid, unescaped control characters in the JSON output.
+        out.print(results, soft_wrap=True)
 
     if interactive and output_file:
         console.print("[bold]DONE![/bold]", end="\n\n")
