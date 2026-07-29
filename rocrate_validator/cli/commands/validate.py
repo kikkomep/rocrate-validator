@@ -1134,7 +1134,10 @@ def _write_batch_report(
         with output_file.open("w", encoding="utf-8") if output_file else nullcontext(sys.stdout) as f:
             out = Console(color_system=None, width=output_line_width, file=f)
             out.register_formatter(JSONOutputFormatter())
-            out.print(batch_result)
+            # Disable word-wrap/cropping: Rich would otherwise insert literal line
+            # breaks into long string values (e.g. messages, URLs), producing
+            # invalid, unescaped control characters in the JSON output.
+            out.print(batch_result, soft_wrap=True)
         return
 
     crate_dicts = [entry.to_dict() for entry in batch_result.crates]
