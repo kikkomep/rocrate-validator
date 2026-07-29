@@ -46,6 +46,7 @@ from rocrate_validator.utils import log as logging
 from rocrate_validator.utils.io_helpers.input import single_choice
 from rocrate_validator.utils.io_helpers.output.console import Console
 from rocrate_validator.utils.io_helpers.output.csv_report import write_report_csv
+from rocrate_validator.utils.io_helpers.output.json.report import build_report, dump_json
 from rocrate_validator.utils.io_helpers.output.text.statistics import (
     render_issue_reference,
     render_report_md,
@@ -225,10 +226,10 @@ def sessions_show(
     "-f",
     "--format",
     "output_format",
-    type=click.Choice(["text", "md", "csv"], case_sensitive=False),
+    type=click.Choice(["text", "md", "csv", "json"], case_sensitive=False),
     default="text",
     show_default=True,
-    help="Report format: text, markdown, or csv (raw data, one row per issue)",
+    help="Report format: text, markdown, csv (raw data, one row per issue) or json (the v2 report)",
 )
 @click.option(
     "-v",
@@ -380,7 +381,16 @@ def _write_session_report(
     session = BatchSession.load(session_file)
     crate_dicts = [e.to_dict() for e in session.crates]
 
-    if output_format == "csv":
+    if output_format == "json":
+        # The very same report `validate -f json` writes, rebuilt from what was
+        # stored: one report shape for the whole tool, not one per command.
+        report = build_report(session, passed=BatchValidationResult(session).passed(), verbose=verbose)
+        if output_file:
+            with output_file.open("w", encoding="utf-8") as f:
+                dump_json(report, f)
+        else:
+            dump_json(report, sys.stdout)
+    elif output_format == "csv":
         if output_file:
             # ``utf-8-sig`` so spreadsheet tools (Excel) detect the encoding;
             # the BOM is skipped when the report goes to stdout.

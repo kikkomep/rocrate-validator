@@ -52,6 +52,8 @@ from rocrate_validator.utils.io_helpers.input import get_single_char, multiple_c
 from rocrate_validator.utils.io_helpers.output.console import Console
 from rocrate_validator.utils.io_helpers.output.csv_report import write_report_csv
 from rocrate_validator.utils.io_helpers.output.json import JSONOutputFormatter
+from rocrate_validator.utils.io_helpers.output.json.fanout import split_documents
+from rocrate_validator.utils.io_helpers.output.json.report import build_report, dump_json
 from rocrate_validator.utils.io_helpers.output.text import TextOutputFormatter
 from rocrate_validator.utils.io_helpers.output.text.layout.report import LiveTextProgressLayout, get_app_header_rule
 from rocrate_validator.utils.io_helpers.output.text.statistics import render_issue_reference
@@ -115,6 +117,8 @@ _VALIDATE_OPTION_GROUPS = {
             "options": [
                 "--output-format",
                 "--output-file",
+                "--json-schema",
+                "--split-per-crate",
                 "--output-line-width",
                 "--verbose",
                 "--no-paging",
@@ -298,10 +302,7 @@ def validate_uri(ctx, param, value):  # pylint: disable=unused-argument
     type=click.Choice(["text", "csv", "json"], case_sensitive=False),
     default="text",
     show_default=True,
-    help=(
-        "Output format of the validation report; [bold]csv[/bold] (batch mode only) "
-        "is the raw data, one row per reported issue"
-    ),
+    help=("Output format of the validation report; [bold]csv[/bold] is the raw data, one row per reported issue"),
 )
 @click.option(
     "-o",
@@ -310,6 +311,39 @@ def validate_uri(ctx, param, value):  # pylint: disable=unused-argument
     default=None,
     show_default=True,
     help="Path to the output file for the validation report",
+)
+@click.option(
+    "-d",
+    "--output-dir",
+    type=click.Path(path_type=Path),
+    default=None,
+    show_default=False,
+    help=(
+        "Base directory for the report: with [bold]--split-per-crate[/bold], each crate and "
+        "the manifest go there; otherwise [bold]--output-file[/bold] (when relative) is "
+        "resolved against it"
+    ),
+)
+@click.option(
+    "--json-schema",
+    type=click.Choice(["v2", "legacy"], case_sensitive=False),
+    default="v2",
+    show_default=True,
+    help=(
+        "Schema of the JSON report: [bold]v2[/bold] has the same shape for single and batch "
+        "validations, [bold]legacy[/bold] reproduces the pre-v2 report of each mode. "
+        "Ignored by the other output formats"
+    ),
+)
+@click.option(
+    "--split-per-crate",
+    is_flag=True,
+    default=False,
+    show_default=True,
+    help=(
+        "Write one JSON report per crate plus an [bold]index.json[/bold] manifest, instead of a "
+        "single document. Reports go to [bold]--output-dir[/bold] (default: [bold]validation-report/[/bold])"
+    ),
 )
 @click.option(
     "-w",
@@ -442,7 +476,10 @@ def validate(  # noqa: C901, PLR0914
     verbose: bool = False,
     output_format: str = "text",
     output_file: Path | None = None,
+    output_dir: Path | None = None,
     output_line_width: int | None = None,
+    json_schema: str = "v2",
+    split_per_crate: bool = False,
     cache_max_age: int = constants.DEFAULT_HTTP_CACHE_MAX_AGE,
     cache_path: Path | None = None,
     no_cache: bool = False,
@@ -538,6 +575,41 @@ def validate(  # noqa: C901, PLR0914
             "skip_availability_check": skip_availability_check,
         }
 
+        _check_output_options(
+            output_format=output_format,
+            split_per_crate=split_per_crate,
+        )
+
+        # --output-dir provides the base directory for a relative --output-file.
+        # When --output-file is absolute the directory is superfluous and ignored.
+        if output_dir is not None and not split_per_crate:
+            if output_file is not None:
+                if output_file.is_absolute():
+                    Console(file=sys.stderr, no_color=console.no_color, width=console.width).print(
+                        "[yellow]Warning:[/yellow] --output-dir is ignored when --output-file is an absolute path"
+                    )
+                else:
+                    output_file = output_dir / output_file
+            else:
+                Console(file=sys.stderr, no_color=console.no_color, width=console.width).print(
+                    "[yellow]Warning:[/yellow] --output-dir has no effect without --output-file "
+                    "or --split-per-crate (output goes to stdout)"
+                )
+
+        # Warn when -o is used with --split-per-crate: the split mode writes
+        # one file per crate and ignores the single-file output option.
+        if split_per_crate and output_file is not None:
+            Console(file=sys.stderr, no_color=console.no_color, width=console.width).print(
+                "[yellow]Warning:[/yellow] --output-file is ignored with --split-per-crate; "
+                "reports go to --output-dir (default: validation-report/)"
+            )
+            output_file = None
+
+        # Ensure the parent directory exists when -d is used with a relative -o.
+        # (The split-mode writer creates its own directory, and stdout needs none.)
+        if output_file is not None and not split_per_crate and output_file.parent != Path():
+            output_file.parent.mkdir(parents=True, exist_ok=True)
+
         # Print the application header
         if output_format == "text" and output_file is None:
             console.print(get_app_header_rule())
@@ -562,7 +634,10 @@ def validate(  # noqa: C901, PLR0914
                 interactive=interactive,
                 output_format=output_format,
                 output_file=output_file,
+                output_dir=output_dir,
                 output_line_width=output_line_width,
+                json_schema=json_schema,
+                split_per_crate=split_per_crate,
             )
 
         # Single-crate validation is atomic: there is no run-state to resume.
@@ -571,10 +646,6 @@ def validate(  # noqa: C901, PLR0914
                 "[yellow]--resume has no effect on a single-crate validation "
                 "(nothing to resume); running a fresh validation.[/yellow]"
             )
-
-        # CSV is a batch-only report format; reject it for single-crate validation.
-        if output_format == "csv":
-            raise click.UsageError("The 'csv' output format is only available in batch mode.")
 
         # Resolve (and guard) the named session path up front, before any
         # validation work: an existing non-empty session must not be
@@ -611,6 +682,7 @@ def validate(  # noqa: C901, PLR0914
             output_file=output_file,
             output_line_width=output_line_width,
         )
+        duration = time.time() - started
         # Record the validation in the sessions history (same history as batch
         # runs, browsable with `sessions list/show`) only when opted in.
         if session_opt is not None:
@@ -618,20 +690,30 @@ def validate(  # noqa: C901, PLR0914
                 validation_settings,
                 rocrate_uri=detected.crate_paths[0],
                 results=results,
-                duration=time.time() - started,
+                duration=duration,
                 profile_identifiers=list(profile_identifier),
                 no_auto_profile=no_auto_profile,
                 session_path=single_session_path,
             )
-        if output_format == "json":
-            _emit_json_report(
-                results,
-                profile_identifiers,
-                is_valid,
+        if output_format in ("json", "csv"):
+            _write_single_report(
+                validation_settings,
+                results=results,
+                profile_identifiers=profile_identifiers,
+                is_valid=is_valid,
+                rocrate_uri=detected.crate_paths[0],
+                duration=duration,
+                explicit_profiles=list(profile_identifier),
+                no_auto_profile=no_auto_profile,
                 console=console,
                 interactive=interactive,
+                verbose=verbose,
                 output_file=output_file,
+                output_dir=output_dir,
                 output_line_width=output_line_width,
+                json_schema=json_schema,
+                split_per_crate=split_per_crate,
+                output_format=output_format,
             )
 
         # Exit with appropriate status code.
@@ -879,20 +961,33 @@ def _run_batch_validation(
     interactive: bool,
     output_format: str,
     output_file: Path | None,
+    output_dir: Path | None,
     output_line_width: int | None,
+    json_schema: str = "v2",
+    split_per_crate: bool = False,
 ) -> None:
     """Run batch validation end-to-end and exit with the aggregated status code."""
     crate_paths = detected.crate_paths
-    if not crate_paths:
-        console.print("[bold yellow]No RO-Crates found for batch validation.[/bold yellow]")
-        sys.exit(0)
-
     batch_settings = _build_batch_settings(
         base_settings,
         profile_identifiers=profile_identifiers,
         cache_max_age=cache_max_age,
         verbose=verbose,
     )
+    if not crate_paths:
+        _report_empty_batch(
+            console,
+            batch_settings,
+            output_format=output_format,
+            output_file=output_file,
+            output_dir=output_dir,
+            output_line_width=output_line_width,
+            verbose=verbose,
+            json_schema=json_schema,
+            split_per_crate=split_per_crate,
+        )
+        sys.exit(0)
+
     # The state file location is derived deterministically from the user input
     # and settings: a temporary run-state by default, the permanent session
     # file with --session (written incrementally from the start, no promotion).
@@ -935,27 +1030,36 @@ def _run_batch_validation(
     # Writing a large report to a file can take a moment; show a spinner on
     # stderr while it happens (skipped when the summary is rendered to the
     # console, which is itself the visible output).
-    if output_file:
+    if split_per_crate:
+        status_msg = f"[cyan]Writing split reports to {output_dir or 'validation-report/'}…[/cyan]"
+    elif output_file:
+        status_msg = f"[cyan]Writing report to {output_file}…[/cyan]"
+    if output_file or split_per_crate:
         status_console = Console(file=sys.stderr, no_color=console.no_color, width=console.width)
-        report_ctx = status_console.status(f"[cyan]Writing report to {output_file}…[/cyan]")
+        report_ctx = status_console.status(status_msg)
     else:
         report_ctx = nullcontext()
     with report_ctx:
-        _write_batch_report(
+        report_path = _write_batch_report(
             batch_view,
             batch_result,
             output_format=output_format,
             output_file=output_file,
+            output_dir=output_dir,
             output_line_width=output_line_width,
             verbose=verbose,
+            json_schema=json_schema,
+            split_per_crate=split_per_crate,
+            console=console,
         )
     _report_batch_status(
         console,
         batch_result,
         state_path=state_path,
         ephemeral=ephemeral,
-        output_file=output_file,
+        output_file=report_path,
         output_format=output_format,
+        split_per_crate=split_per_crate,
     )
     sys.exit(0 if batch_result.passed() else 1)
 
@@ -1057,19 +1161,51 @@ def _record_single_validation_session(
                 profile_identifiers=explicit_profiles,
                 no_auto_profile=no_auto_profile,
             )
-        session = ValidationSession(
-            validation_settings=settings_obj.to_dict() if hasattr(settings_obj, "to_dict") else {},
-            crate_paths=[str(rocrate_uri)],
+        session = _build_single_session(
+            validation_settings,
+            rocrate_uri=rocrate_uri,
+            results=results,
+            duration=duration,
+            profile_identifiers=profile_identifiers,
+            no_auto_profile=no_auto_profile,
             session_path=session_path,
         )
-        session.profile_identifiers = explicit_profiles
-        session.no_auto_profile = no_auto_profile
-        session.requirement_severity_only = bool(getattr(settings_obj, "requirement_severity_only", False))
-        session.add_results(str(rocrate_uri), list(results.items()), duration)
         session.save()
         logger.debug("Validation recorded in session: %s", session_path)
     except Exception as e:
         logger.debug("Could not record the validation session: %s", e)
+
+
+def _build_single_session(
+    validation_settings: dict,
+    *,
+    rocrate_uri: str | Path,
+    results: dict[str, ValidationResult],
+    duration: float,
+    profile_identifiers: list[str],
+    no_auto_profile: bool,
+    session_path: Path | None = None,
+) -> ValidationSession:
+    """
+    Build the session of a single-crate validation.
+
+    A single crate is a session of one, which is what makes the report identical
+    in both modes: the session is persisted when the run opted into one, and is
+    otherwise transient, built only to be projected into the report.
+    """
+    settings_obj = ValidationSettings.parse(dict(validation_settings))
+    session = ValidationSession(
+        validation_settings=settings_obj.to_dict() if hasattr(settings_obj, "to_dict") else {},
+        crate_paths=[str(rocrate_uri)],
+        session_path=session_path,
+    )
+    session.profile_identifiers = list(profile_identifiers) if profile_identifiers else None
+    session.no_auto_profile = no_auto_profile
+    session.requirement_severity_only = bool(getattr(settings_obj, "requirement_severity_only", False))
+    session.add_results(str(rocrate_uri), list(results.items()), duration)
+    if session.is_completed():
+        session.status = "completed"
+    return session
 
 
 def _build_batch_settings(
@@ -1111,17 +1247,182 @@ def _common_base_path(crate_paths: list[str]) -> Path | None:
         return None
 
 
+def _report_empty_batch(
+    console: Console,
+    batch_settings: ValidationSettings,
+    *,
+    output_format: str,
+    output_file: Path | None,
+    output_dir: Path | None,
+    output_line_width: int | None,
+    verbose: bool,
+    json_schema: str,
+    split_per_crate: bool,
+) -> None:
+    """
+    Report a batch that matched no crate at all.
+
+    The machine-readable formats still get a well-formed, empty report — an
+    empty ``crates`` list, zeroed statistics — so a consumer never has to tell
+    "nothing matched" apart from "the command produced nothing". The human
+    notice goes to stderr, where it cannot pollute that report.
+    """
+    Console(file=sys.stderr, no_color=console.no_color, width=console.width).print(
+        "[bold yellow]No RO-Crates found for batch validation.[/bold yellow]"
+    )
+    if output_format not in ("json", "csv"):
+        return
+    session = ValidationSession(
+        validation_settings=batch_settings.to_dict() if hasattr(batch_settings, "to_dict") else {},
+        crate_paths=[],
+    )
+    session.status = "completed"
+    _write_batch_report(
+        BatchValidationCommandView(console=console),
+        BatchValidationResult(session),
+        output_format=output_format,
+        output_file=output_file,
+        output_dir=output_dir,
+        output_line_width=output_line_width,
+        verbose=verbose,
+        json_schema=json_schema,
+        split_per_crate=split_per_crate,
+        console=console,
+    )
+
+
+def _check_output_options(*, output_format: str, split_per_crate: bool) -> None:
+    """Reject option combinations the output formats cannot honour."""
+    # Splitting concerns the JSON report only: the CSV is already one row per
+    # issue, and the text report is meant to be read as a whole.
+    if split_per_crate and output_format != "json":
+        raise click.UsageError("--split-per-crate applies to the JSON report only (use -f json).")
+
+
+def _write_single_report(
+    validation_settings: dict,
+    *,
+    results: dict[str, ValidationResult],
+    profile_identifiers: list[str],
+    is_valid: bool,
+    rocrate_uri: str | Path,
+    duration: float,
+    explicit_profiles: list[str],
+    no_auto_profile: bool,
+    console: Console,
+    interactive: bool,
+    verbose: bool,
+    output_file: Path | None,
+    output_dir: Path | None,
+    output_line_width: int | None,
+    json_schema: str,
+    split_per_crate: bool,
+    output_format: str = "json",
+) -> None:
+    """
+    Write the machine-readable report of a single-crate validation.
+
+    The v2 report is projected from a session of one crate, the very same
+    projection the batch uses; the legacy report keeps its own (frozen)
+    renderer, which works off the live per-profile results. Splitting always
+    goes through the session, whatever the schema, since it is the session that
+    knows the crates. The CSV is the batch one over a session of one.
+    """
+    session = (
+        None
+        if json_schema == "legacy" and output_format == "json" and not split_per_crate
+        else _build_single_session(
+            validation_settings,
+            rocrate_uri=rocrate_uri,
+            results=results,
+            duration=duration,
+            profile_identifiers=explicit_profiles,
+            no_auto_profile=no_auto_profile,
+        )
+    )
+    if output_format == "csv" and session is not None:
+        # ``utf-8-sig`` so spreadsheet tools (Excel) detect the encoding; the
+        # BOM is skipped when the report goes to stdout.
+        crate_dicts = [entry.to_dict() for entry in session.crates]
+        if output_file:
+            with output_file.open("w", encoding="utf-8-sig", newline="") as f:
+                write_report_csv(f, crate_dicts)
+        else:
+            write_report_csv(sys.stdout, crate_dicts)
+        return
+    if split_per_crate and session is not None:
+        _write_split_reports(
+            session,
+            console=console,
+            schema=json_schema,
+            passed=is_valid,
+            verbose=verbose,
+            output_dir=output_dir,
+        )
+        return
+    _emit_json_report(
+        results,
+        profile_identifiers,
+        is_valid,
+        console=console,
+        interactive=interactive,
+        output_file=output_file,
+        output_line_width=output_line_width,
+        session=session,
+        verbose=verbose,
+    )
+
+
+def _write_split_reports(
+    session: ValidationSession,
+    *,
+    console: Console,
+    schema: str,
+    passed: bool,
+    verbose: bool,
+    output_dir: Path | None,
+) -> Path:
+    """
+    Write one report per crate plus the manifest, and report where they went.
+
+    :returns: the path of the manifest, the entry point of the whole set
+    """
+    directory, documents, index_name = split_documents(
+        session,
+        schema=schema,
+        passed=passed,
+        verbose=verbose,
+        output_dir=output_dir,
+    )
+    directory.mkdir(parents=True, exist_ok=True)
+    for name, document in documents.items():
+        with (directory / name).open("w", encoding="utf-8") as f:
+            dump_json(document, f)
+    # On stderr, so it never mixes with a report written to stdout.
+    Console(file=sys.stderr, no_color=console.no_color, width=console.width).print(
+        f"[bold]Wrote {len(documents) - 1} report(s)[/bold] to [cyan]{directory}{os.sep}[/cyan]"
+    )
+    return directory / index_name
+
+
 def _write_batch_report(
     batch_view: BatchValidationCommandView,
     batch_result: BatchValidationResult,
     *,
     output_format: str,
     output_file: Path | None,
+    output_dir: Path | None,
     output_line_width: int | None,
     verbose: bool,
-) -> None:
+    json_schema: str = "v2",
+    split_per_crate: bool = False,
+    console: Console | None = None,
+) -> Path | None:
     """
     Write the batch result as JSON, CSV or a text summary, to a file or the console.
+
+    :returns: the path the report was written to (the manifest, when split), or
+        ``None`` when it went to the console.
 
     Statistics are not rendered here: the complete document (summary,
     statistics, issue details, appendix) is available at any time from the
@@ -1131,14 +1432,33 @@ def _write_batch_report(
     so this function does not print its own "writing to ..." notes.
     """
     if output_format == "json":
+        if split_per_crate:
+            return _write_split_reports(
+                batch_result.session,
+                console=console or batch_view.console,
+                schema=json_schema,
+                passed=batch_result.passed(),
+                verbose=verbose,
+                output_dir=output_dir,
+            )
         with output_file.open("w", encoding="utf-8") if output_file else nullcontext(sys.stdout) as f:
-            out = Console(color_system=None, width=output_line_width, file=f)
-            out.register_formatter(JSONOutputFormatter())
-            # Disable word-wrap/cropping: Rich would otherwise insert literal line
-            # breaks into long string values (e.g. messages, URLs), producing
-            # invalid, unescaped control characters in the JSON output.
-            out.print(batch_result, soft_wrap=True)
-        return
+            if json_schema == "legacy":
+                out = Console(color_system=None, width=output_line_width, file=f)
+                out.register_formatter(JSONOutputFormatter())
+                # Disable word-wrap/cropping: Rich would otherwise insert literal line
+                # breaks into long string values (e.g. messages, URLs), producing
+                # invalid, unescaped control characters in the JSON output.
+                out.print(batch_result, soft_wrap=True)
+            else:
+                dump_json(
+                    build_report(
+                        batch_result.session,
+                        passed=batch_result.passed(),
+                        verbose=verbose,
+                    ),
+                    f,
+                )
+        return output_file
 
     crate_dicts = [entry.to_dict() for entry in batch_result.crates]
 
@@ -1150,7 +1470,7 @@ def _write_batch_report(
                 write_report_csv(f, crate_dicts)
         else:
             write_report_csv(sys.stdout, crate_dicts)
-        return
+        return output_file
     if output_file:
         with output_file.open("w", encoding="utf-8") as f:
             out = Console(color_system=None, width=output_line_width, file=f)
@@ -1162,6 +1482,7 @@ def _write_batch_report(
                 render_issue_reference(out, crate_dicts)
     else:
         batch_view.show_summary(batch_result, verbose=verbose)
+    return output_file
 
 
 def _print_batch_header(
@@ -1202,6 +1523,7 @@ def _report_batch_status(
     ephemeral: bool,
     output_file: Path | None,
     output_format: str,
+    split_per_crate: bool = False,
 ) -> None:
     """
     Print the final batch verdict on stderr, followed by a spaced block listing
@@ -1216,7 +1538,10 @@ def _report_batch_status(
 
     rows: list[tuple[str, str, str, str]] = []  # (icon, label, path, path-style)
     if output_file:
-        rows.append(("📄", f"Report ({output_format})", str(output_file), "bold cyan"))
+        if split_per_crate:
+            rows.append(("📄", f"Reports ({output_format})", str(output_file.parent), "bold cyan"))
+        else:
+            rows.append(("📄", f"Report ({output_format})", str(output_file), "bold cyan"))
     # The state file is only useful here if the run did not finish (so it can
     # be resumed); when completed a run-state no longer exists and a session
     # is redundant with the header shown at the start.
@@ -1519,8 +1844,15 @@ def _emit_json_report(
     interactive: bool,
     output_file: Path | None,
     output_line_width: int | None,
+    session: ValidationSession | None = None,
+    verbose: bool = False,
 ) -> None:
-    """Write the aggregated validation results as JSON to a file or stdout."""
+    """
+    Write the aggregated validation results as JSON to a file or stdout.
+
+    With a ``session`` the report is the v2 projection of that session; without
+    one it is the legacy per-profile document.
+    """
     if interactive:
         if is_valid:
             console.print(
@@ -1541,12 +1873,15 @@ def _emit_json_report(
 
     # Generate the JSON output and write it to the specified output file or to stdout
     with output_file.open("w", encoding="utf-8") if output_file else nullcontext(sys.stdout) as f:
-        out = Console(width=output_line_width, file=f)
-        out.register_formatter(JSONOutputFormatter())
-        # Disable word-wrap/cropping: Rich would otherwise insert literal line
-        # breaks into long string values (e.g. messages, URLs), producing
-        # invalid, unescaped control characters in the JSON output.
-        out.print(results, soft_wrap=True)
+        if session is None:
+            out = Console(color_system=None, width=output_line_width, file=f)
+            out.register_formatter(JSONOutputFormatter())
+            # Disable word-wrap/cropping: Rich would otherwise insert literal line
+            # breaks into long string values (e.g. messages, URLs), producing
+            # invalid, unescaped control characters in the JSON output.
+            out.print(results, soft_wrap=True)
+        else:
+            dump_json(build_report(session, passed=is_valid, verbose=verbose), f)
 
     if interactive and output_file:
         console.print("[bold]DONE![/bold]", end="\n\n")
