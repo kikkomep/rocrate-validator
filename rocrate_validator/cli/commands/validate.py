@@ -23,6 +23,7 @@ from contextlib import nullcontext
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
+from typing import cast
 
 import rich_click as click
 from rich.padding import Padding
@@ -580,35 +581,12 @@ def validate(  # noqa: C901, PLR0914
             split_per_crate=split_per_crate,
         )
 
-        # --output-dir provides the base directory for a relative --output-file.
-        # When --output-file is absolute the directory is superfluous and ignored.
-        if output_dir is not None and not split_per_crate:
-            if output_file is not None:
-                if output_file.is_absolute():
-                    Console(file=sys.stderr, no_color=console.no_color, width=console.width).print(
-                        "[yellow]Warning:[/yellow] --output-dir is ignored when --output-file is an absolute path"
-                    )
-                else:
-                    output_file = output_dir / output_file
-            else:
-                Console(file=sys.stderr, no_color=console.no_color, width=console.width).print(
-                    "[yellow]Warning:[/yellow] --output-dir has no effect without --output-file "
-                    "or --split-per-crate (output goes to stdout)"
-                )
-
-        # Warn when -o is used with --split-per-crate: the split mode writes
-        # one file per crate and ignores the single-file output option.
-        if split_per_crate and output_file is not None:
-            Console(file=sys.stderr, no_color=console.no_color, width=console.width).print(
-                "[yellow]Warning:[/yellow] --output-file is ignored with --split-per-crate; "
-                "reports go to --output-dir (default: validation-report/)"
-            )
-            output_file = None
-
-        # Ensure the parent directory exists when -d is used with a relative -o.
-        # (The split-mode writer creates its own directory, and stdout needs none.)
-        if output_file is not None and not split_per_crate and output_file.parent != Path():
-            output_file.parent.mkdir(parents=True, exist_ok=True)
+        output_file = _resolve_output_destination(
+            console,
+            output_file=output_file,
+            output_dir=output_dir,
+            split_per_crate=split_per_crate,
+        )
 
         # Print the application header
         if output_format == "text" and output_file is None:
@@ -776,7 +754,7 @@ def _detect_input(rocrate_uris: list[str], *, batch: bool, batch_pattern: str) -
             "--batch-pattern applies to a directory scan; it cannot be combined with an explicit list of RO-Crates."
         )
 
-    targets = services.normalize_state_targets(rocrate_uris)
+    targets = services.normalize_state_targets(cast("list[str | Path]", rocrate_uris))
 
     # Single crate (auto-detected), unless -b forces a directory scan.
     if not batch and not multiple and _is_single_crate_uri(rocrate_uris[0]):
@@ -1030,11 +1008,12 @@ def _run_batch_validation(
     # Writing a large report to a file can take a moment; show a spinner on
     # stderr while it happens (skipped when the summary is rendered to the
     # console, which is itself the visible output).
-    if split_per_crate:
-        status_msg = f"[cyan]Writing split reports to {output_dir or 'validation-report/'}…[/cyan]"
-    elif output_file:
-        status_msg = f"[cyan]Writing report to {output_file}…[/cyan]"
-    if output_file or split_per_crate:
+    if split_per_crate or output_file:
+        status_msg = (
+            f"[cyan]Writing split reports to {output_dir or 'validation-report/'}…[/cyan]"
+            if split_per_crate
+            else f"[cyan]Writing report to {output_file}…[/cyan]"
+        )
         status_console = Console(file=sys.stderr, no_color=console.no_color, width=console.width)
         report_ctx = status_console.status(status_msg)
     else:
@@ -1297,6 +1276,54 @@ def _check_output_options(*, output_format: str, split_per_crate: bool) -> None:
     # issue, and the text report is meant to be read as a whole.
     if split_per_crate and output_format != "json":
         raise click.UsageError("--split-per-crate applies to the JSON report only (use -f json).")
+
+
+def _resolve_output_destination(
+    console: Console,
+    *,
+    output_file: Path | None,
+    output_dir: Path | None,
+    split_per_crate: bool,
+) -> Path | None:
+    """
+    Combine ``--output-file`` and ``--output-dir`` into the single file to write.
+
+    Returns the resolved path, with its parent directory created, or ``None``
+    when the report goes to stdout or to the split-mode writer (which resolves
+    its own destination from ``--output-dir``).
+    """
+
+    def warn(message: str) -> None:
+        Console(file=sys.stderr, no_color=console.no_color, width=console.width).print(
+            f"[yellow]Warning:[/yellow] {message}"
+        )
+
+    # Warn when -o is used with --split-per-crate: the split mode writes one
+    # file per crate and ignores the single-file output option.
+    if split_per_crate:
+        if output_file is not None:
+            warn(
+                "--output-file is ignored with --split-per-crate; "
+                "reports go to --output-dir (default: validation-report/)"
+            )
+        return None
+
+    # --output-dir provides the base directory for a relative --output-file.
+    # When --output-file is absolute the directory is superfluous and ignored.
+    if output_dir is not None:
+        if output_file is None:
+            warn("--output-dir has no effect without --output-file or --split-per-crate (output goes to stdout)")
+        elif output_file.is_absolute():
+            warn("--output-dir is ignored when --output-file is an absolute path")
+        else:
+            output_file = output_dir / output_file
+
+    # Ensure the parent directory exists when -d is used with a relative -o.
+    # (stdout needs none.)
+    if output_file is not None and output_file.parent != Path():
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+
+    return output_file
 
 
 def _write_single_report(
