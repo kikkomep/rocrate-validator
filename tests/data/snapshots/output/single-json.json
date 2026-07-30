@@ -1,0 +1,83 @@
+{
+  "issues": [
+    {
+      "check": {
+        "description": "Check if the Root Data Entity URI ends with `/`",
+        "identifier": "ro-crate-1.1_10.1",
+        "label": "MUST 10.1",
+        "name": "Root Data Entity URI value",
+        "order": 1,
+        "requirement": {
+          "description": "The Root Data Entity MUST end with `/`",
+          "identifier": "ro-crate-1.1_10",
+          "name": "RO-Crate Root Data Entity value restriction",
+          "order": 10,
+          "profile": {
+            "description": "RO-Crate Metadata Specification.",
+            "identifier": "ro-crate-1.1",
+            "name": "RO-Crate Metadata Specification 1.1",
+            "uri": "https://w3id.org/ro/crate/1.1"
+          }
+        },
+        "severity": "REQUIRED"
+      },
+      "message": "The Root Data Entity URI MUST end with `/`",
+      "severity": "REQUIRED",
+      "violatingEntity": "https://github.com/crs4/rocrate-validator/profiles/ro-crate/RootDataEntity",
+      "violatingProperty": "<bnode>",
+      "violatingPropertyValue": "https://w3id.org/ro/wfrun/process/0.5"
+    }
+  ],
+  "meta": {
+    "generated_by": "rocrate-validator",
+    "version": "<version>"
+  },
+  "passed": false,
+  "statistics": {
+    "duration": "<volatile>",
+    "finished_at": "<volatile>",
+    "profiles": [
+      "ro-crate-1.1"
+    ],
+    "started_at": "<volatile>",
+    "total_checks": 37,
+    "total_checks_by_severity": {
+      "OPTIONAL": 0,
+      "RECOMMENDED": 0,
+      "REQUIRED": 37
+    },
+    "total_failed_checks": 1,
+    "total_failed_requirements": 1,
+    "total_passed_checks": 36,
+    "total_passed_requirements": 15,
+    "total_requirements": 15
+  },
+  "validation_settings": {
+    "abort_on_first": false,
+    "allow_requirement_check_override": true,
+    "cache_max_age": -1,
+    "cache_path": "<cache>/rocrate-validator/http_cache",
+    "creation_time": false,
+    "disable_check_for_duplicates": false,
+    "disable_inherited_profiles_issue_reporting": false,
+    "enable_profile_inheritance": true,
+    "enforce_availability": false,
+    "extra_profiles_path": null,
+    "metadata_only": false,
+    "no_cache": false,
+    "offline": false,
+    "profile_identifier": "ro-crate-1.1",
+    "profile_identifiers": [
+      "ro-crate-1.1"
+    ],
+    "profiles_path": "<profiles>",
+    "requirement_severity": "REQUIRED",
+    "rocrate_relative_root_path": null,
+    "rocrate_uri": "<collection>/crate-failing",
+    "skip_availability_check": true,
+    "skip_checks": [
+      "ro-crate-1.1_12.1"
+    ],
+    "verbose": false
+  }
+}

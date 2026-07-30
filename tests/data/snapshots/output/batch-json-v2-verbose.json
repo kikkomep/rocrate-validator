@@ -1,0 +1,471 @@
+{
+  "crates": [
+    {
+      "duration": "<volatile>",
+      "error": null,
+      "issues": [
+        {
+          "check": {
+            "description": "Check if the Root Data Entity URI ends with `/`",
+            "identifier": "ro-crate-1.1_10.1",
+            "label": "MUST 10.1",
+            "name": "Root Data Entity URI value",
+            "order": 1,
+            "requirement": {
+              "description": "The Root Data Entity MUST end with `/`",
+              "identifier": "ro-crate-1.1_10",
+              "name": "RO-Crate Root Data Entity value restriction",
+              "order": 10,
+              "profile": {
+                "description": "RO-Crate Metadata Specification.",
+                "identifier": "ro-crate-1.1",
+                "name": "RO-Crate Metadata Specification 1.1",
+                "uri": "https://w3id.org/ro/crate/1.1"
+              }
+            },
+            "severity": "REQUIRED"
+          },
+          "message": "The Root Data Entity URI MUST end with `/`",
+          "severity": "REQUIRED",
+          "violatingEntity": "https://github.com/crs4/rocrate-validator/profiles/ro-crate/RootDataEntity",
+          "violatingProperty": "<bnode>",
+          "violatingPropertyValue": "https://w3id.org/ro/wfrun/process/0.5"
+        }
+      ],
+      "name": "crate-failing",
+      "passed": false,
+      "path": "<collection>/crate-failing",
+      "profiles": [
+        "ro-crate-1.1"
+      ],
+      "results_by_profile": {
+        "ro-crate-1.1": {
+          "issues": [
+            {
+              "check": {
+                "description": "Check if the Root Data Entity URI ends with `/`",
+                "identifier": "ro-crate-1.1_10.1",
+                "label": "MUST 10.1",
+                "name": "Root Data Entity URI value",
+                "order": 1,
+                "requirement": {
+                  "description": "The Root Data Entity MUST end with `/`",
+                  "identifier": "ro-crate-1.1_10",
+                  "name": "RO-Crate Root Data Entity value restriction",
+                  "order": 10,
+                  "profile": {
+                    "description": "RO-Crate Metadata Specification.",
+                    "identifier": "ro-crate-1.1",
+                    "name": "RO-Crate Metadata Specification 1.1",
+                    "uri": "https://w3id.org/ro/crate/1.1"
+                  }
+                },
+                "severity": "REQUIRED"
+              },
+              "message": "The Root Data Entity URI MUST end with `/`",
+              "severity": "REQUIRED",
+              "violatingEntity": "https://github.com/crs4/rocrate-validator/profiles/ro-crate/RootDataEntity",
+              "violatingProperty": "<bnode>",
+              "violatingPropertyValue": "https://w3id.org/ro/wfrun/process/0.5"
+            }
+          ]
+        }
+      },
+      "size_bytes": 33436,
+      "statistics": {
+        "checks": {
+          "by_severity": {
+            "OPTIONAL": 0,
+            "RECOMMENDED": 0,
+            "REQUIRED": 37
+          },
+          "count": 37,
+          "failed": {
+            "count": 1,
+            "identifiers": [
+              "ro-crate-1.1_10.1"
+            ],
+            "percentage": 2.7027027027027026
+          },
+          "identifiers": [
+            "ro-crate-1.1_1.1",
+            "ro-crate-1.1_10.0",
+            "ro-crate-1.1_10.1",
+            "ro-crate-1.1_11.0",
+            "ro-crate-1.1_11.1",
+            "ro-crate-1.1_13.0",
+            "ro-crate-1.1_13.1",
+            "ro-crate-1.1_14.0",
+            "ro-crate-1.1_14.1",
+            "ro-crate-1.1_15.0",
+            "ro-crate-1.1_15.1",
+            "ro-crate-1.1_16.0",
+            "ro-crate-1.1_16.1",
+            "ro-crate-1.1_17.0",
+            "ro-crate-1.1_2.1",
+            "ro-crate-1.1_2.2",
+            "ro-crate-1.1_2.3",
+            "ro-crate-1.1_2.4",
+            "ro-crate-1.1_2.5",
+            "ro-crate-1.1_21.0",
+            "ro-crate-1.1_21.1",
+            "ro-crate-1.1_21.2",
+            "ro-crate-1.1_3.1",
+            "ro-crate-1.1_3.2",
+            "ro-crate-1.1_5.0",
+            "ro-crate-1.1_5.1",
+            "ro-crate-1.1_5.2",
+            "ro-crate-1.1_5.3",
+            "ro-crate-1.1_6.0",
+            "ro-crate-1.1_8.0",
+            "ro-crate-1.1_8.1",
+            "ro-crate-1.1_8.2",
+            "ro-crate-1.1_8.3",
+            "ro-crate-1.1_8.4",
+            "ro-crate-1.1_9.0",
+            "ro-crate-1.1_9.1",
+            "ro-crate-1.1_9.2"
+          ],
+          "passed": {
+            "count": 36,
+            "identifiers": [
+              "ro-crate-1.1_1.1",
+              "ro-crate-1.1_10.0",
+              "ro-crate-1.1_11.0",
+              "ro-crate-1.1_11.1",
+              "ro-crate-1.1_13.0",
+              "ro-crate-1.1_13.1",
+              "ro-crate-1.1_14.0",
+              "ro-crate-1.1_14.1",
+              "ro-crate-1.1_15.0",
+              "ro-crate-1.1_15.1",
+              "ro-crate-1.1_16.0",
+              "ro-crate-1.1_16.1",
+              "ro-crate-1.1_17.0",
+              "ro-crate-1.1_2.1",
+              "ro-crate-1.1_2.2",
+              "ro-crate-1.1_2.3",
+              "ro-crate-1.1_2.4",
+              "ro-crate-1.1_2.5",
+              "ro-crate-1.1_21.0",
+              "ro-crate-1.1_21.1",
+              "ro-crate-1.1_21.2",
+              "ro-crate-1.1_3.1",
+              "ro-crate-1.1_3.2",
+              "ro-crate-1.1_5.0",
+              "ro-crate-1.1_5.1",
+              "ro-crate-1.1_5.2",
+              "ro-crate-1.1_5.3",
+              "ro-crate-1.1_6.0",
+              "ro-crate-1.1_8.0",
+              "ro-crate-1.1_8.1",
+              "ro-crate-1.1_8.2",
+              "ro-crate-1.1_8.3",
+              "ro-crate-1.1_8.4",
+              "ro-crate-1.1_9.0",
+              "ro-crate-1.1_9.1",
+              "ro-crate-1.1_9.2"
+            ],
+            "percentage": 97.2972972972973
+          }
+        },
+        "duration": "<volatile>",
+        "finished_at": "<volatile>",
+        "profile": "ro-crate-1.1",
+        "profiles": [
+          "ro-crate-1.1"
+        ],
+        "requirements": {
+          "count": 15,
+          "failed": {
+            "count": 1,
+            "identifiers": [
+              "ro-crate-1.1_10"
+            ],
+            "percentage": 6.666666666666667
+          },
+          "identifiers": [
+            "ro-crate-1.1_1",
+            "ro-crate-1.1_10",
+            "ro-crate-1.1_11",
+            "ro-crate-1.1_13",
+            "ro-crate-1.1_14",
+            "ro-crate-1.1_15",
+            "ro-crate-1.1_16",
+            "ro-crate-1.1_17",
+            "ro-crate-1.1_2",
+            "ro-crate-1.1_21",
+            "ro-crate-1.1_3",
+            "ro-crate-1.1_5",
+            "ro-crate-1.1_6",
+            "ro-crate-1.1_8",
+            "ro-crate-1.1_9"
+          ],
+          "passed": {
+            "count": 15,
+            "identifiers": [
+              "ro-crate-1.1_1",
+              "ro-crate-1.1_11",
+              "ro-crate-1.1_12",
+              "ro-crate-1.1_13",
+              "ro-crate-1.1_14",
+              "ro-crate-1.1_15",
+              "ro-crate-1.1_16",
+              "ro-crate-1.1_17",
+              "ro-crate-1.1_2",
+              "ro-crate-1.1_21",
+              "ro-crate-1.1_3",
+              "ro-crate-1.1_5",
+              "ro-crate-1.1_6",
+              "ro-crate-1.1_8",
+              "ro-crate-1.1_9"
+            ],
+            "percentage": 100.0
+          }
+        },
+        "severity": "REQUIRED",
+        "started_at": "<volatile>",
+        "total_checks": 37,
+        "total_checks_by_severity": {
+          "OPTIONAL": 0,
+          "RECOMMENDED": 0,
+          "REQUIRED": 37
+        },
+        "total_failed_checks": 1,
+        "total_failed_requirements": 1,
+        "total_passed_checks": 36,
+        "total_passed_requirements": 15,
+        "total_requirements": 15
+      },
+      "status": "completed"
+    },
+    {
+      "duration": "<volatile>",
+      "error": null,
+      "issues": [],
+      "name": "crate-passing",
+      "passed": true,
+      "path": "<collection>/crate-passing",
+      "profiles": [
+        "ro-crate-1.1"
+      ],
+      "results_by_profile": {
+        "ro-crate-1.1": {
+          "issues": []
+        }
+      },
+      "size_bytes": 300918,
+      "statistics": {
+        "checks": {
+          "by_severity": {
+            "OPTIONAL": 0,
+            "RECOMMENDED": 0,
+            "REQUIRED": 37
+          },
+          "count": 37,
+          "failed": {
+            "count": 0,
+            "identifiers": [],
+            "percentage": 0.0
+          },
+          "identifiers": [
+            "ro-crate-1.1_1.1",
+            "ro-crate-1.1_10.0",
+            "ro-crate-1.1_10.1",
+            "ro-crate-1.1_11.0",
+            "ro-crate-1.1_11.1",
+            "ro-crate-1.1_13.0",
+            "ro-crate-1.1_13.1",
+            "ro-crate-1.1_14.0",
+            "ro-crate-1.1_14.1",
+            "ro-crate-1.1_15.0",
+            "ro-crate-1.1_15.1",
+            "ro-crate-1.1_16.0",
+            "ro-crate-1.1_16.1",
+            "ro-crate-1.1_17.0",
+            "ro-crate-1.1_2.1",
+            "ro-crate-1.1_2.2",
+            "ro-crate-1.1_2.3",
+            "ro-crate-1.1_2.4",
+            "ro-crate-1.1_2.5",
+            "ro-crate-1.1_21.0",
+            "ro-crate-1.1_21.1",
+            "ro-crate-1.1_21.2",
+            "ro-crate-1.1_3.1",
+            "ro-crate-1.1_3.2",
+            "ro-crate-1.1_5.0",
+            "ro-crate-1.1_5.1",
+            "ro-crate-1.1_5.2",
+            "ro-crate-1.1_5.3",
+            "ro-crate-1.1_6.0",
+            "ro-crate-1.1_8.0",
+            "ro-crate-1.1_8.1",
+            "ro-crate-1.1_8.2",
+            "ro-crate-1.1_8.3",
+            "ro-crate-1.1_8.4",
+            "ro-crate-1.1_9.0",
+            "ro-crate-1.1_9.1",
+            "ro-crate-1.1_9.2"
+          ],
+          "passed": {
+            "count": 37,
+            "identifiers": [
+              "ro-crate-1.1_1.1",
+              "ro-crate-1.1_10.0",
+              "ro-crate-1.1_10.1",
+              "ro-crate-1.1_11.0",
+              "ro-crate-1.1_11.1",
+              "ro-crate-1.1_13.0",
+              "ro-crate-1.1_13.1",
+              "ro-crate-1.1_14.0",
+              "ro-crate-1.1_14.1",
+              "ro-crate-1.1_15.0",
+              "ro-crate-1.1_15.1",
+              "ro-crate-1.1_16.0",
+              "ro-crate-1.1_16.1",
+              "ro-crate-1.1_17.0",
+              "ro-crate-1.1_2.1",
+              "ro-crate-1.1_2.2",
+              "ro-crate-1.1_2.3",
+              "ro-crate-1.1_2.4",
+              "ro-crate-1.1_2.5",
+              "ro-crate-1.1_21.0",
+              "ro-crate-1.1_21.1",
+              "ro-crate-1.1_21.2",
+              "ro-crate-1.1_3.1",
+              "ro-crate-1.1_3.2",
+              "ro-crate-1.1_5.0",
+              "ro-crate-1.1_5.1",
+              "ro-crate-1.1_5.2",
+              "ro-crate-1.1_5.3",
+              "ro-crate-1.1_6.0",
+              "ro-crate-1.1_8.0",
+              "ro-crate-1.1_8.1",
+              "ro-crate-1.1_8.2",
+              "ro-crate-1.1_8.3",
+              "ro-crate-1.1_8.4",
+              "ro-crate-1.1_9.0",
+              "ro-crate-1.1_9.1",
+              "ro-crate-1.1_9.2"
+            ],
+            "percentage": 100.0
+          }
+        },
+        "duration": "<volatile>",
+        "finished_at": "<volatile>",
+        "profile": "ro-crate-1.1",
+        "profiles": [
+          "ro-crate-1.1"
+        ],
+        "requirements": {
+          "count": 15,
+          "failed": {
+            "count": 0,
+            "identifiers": [],
+            "percentage": 0.0
+          },
+          "identifiers": [
+            "ro-crate-1.1_1",
+            "ro-crate-1.1_10",
+            "ro-crate-1.1_11",
+            "ro-crate-1.1_13",
+            "ro-crate-1.1_14",
+            "ro-crate-1.1_15",
+            "ro-crate-1.1_16",
+            "ro-crate-1.1_17",
+            "ro-crate-1.1_2",
+            "ro-crate-1.1_21",
+            "ro-crate-1.1_3",
+            "ro-crate-1.1_5",
+            "ro-crate-1.1_6",
+            "ro-crate-1.1_8",
+            "ro-crate-1.1_9"
+          ],
+          "passed": {
+            "count": 16,
+            "identifiers": [
+              "ro-crate-1.1_1",
+              "ro-crate-1.1_10",
+              "ro-crate-1.1_11",
+              "ro-crate-1.1_12",
+              "ro-crate-1.1_13",
+              "ro-crate-1.1_14",
+              "ro-crate-1.1_15",
+              "ro-crate-1.1_16",
+              "ro-crate-1.1_17",
+              "ro-crate-1.1_2",
+              "ro-crate-1.1_21",
+              "ro-crate-1.1_3",
+              "ro-crate-1.1_5",
+              "ro-crate-1.1_6",
+              "ro-crate-1.1_8",
+              "ro-crate-1.1_9"
+            ],
+            "percentage": 106.66666666666667
+          }
+        },
+        "severity": "REQUIRED",
+        "started_at": "<volatile>",
+        "total_checks": 37,
+        "total_checks_by_severity": {
+          "OPTIONAL": 0,
+          "RECOMMENDED": 0,
+          "REQUIRED": 37
+        },
+        "total_failed_checks": 0,
+        "total_failed_requirements": 0,
+        "total_passed_checks": 37,
+        "total_passed_requirements": 16,
+        "total_requirements": 15
+      },
+      "status": "completed"
+    }
+  ],
+  "meta": {
+    "generated_by": "rocrate-validator",
+    "report_schema_version": "2.0",
+    "rocrate_validator_version": "<version>"
+  },
+  "passed": false,
+  "session": {
+    "completed_crates": 2,
+    "failed_crates": 1,
+    "mode": "batch",
+    "status": "completed",
+    "total_crates": 2
+  },
+  "statistics": {
+    "crates": 2,
+    "crates_with_statistics": 2,
+    "crates_without_statistics": 0,
+    "profiles": [
+      "ro-crate-1.1"
+    ],
+    "total_checks": 74,
+    "total_checks_by_severity": {
+      "OPTIONAL": 0,
+      "RECOMMENDED": 0,
+      "REQUIRED": 74
+    },
+    "total_failed_checks": 1,
+    "total_failed_requirements": 1,
+    "total_passed_checks": 73,
+    "total_passed_requirements": 31,
+    "total_requirements": 30,
+    "total_validation_time": "<volatile>"
+  },
+  "validation_settings": {
+    "abort_on_first": false,
+    "enable_profile_inheritance": true,
+    "metadata_only": false,
+    "no_auto_profile": false,
+    "profile_identifiers": [
+      "ro-crate-1.1"
+    ],
+    "requirement_severity": "REQUIRED",
+    "requirement_severity_only": false,
+    "skip_checks": [
+      "ro-crate-1.1_12.1"
+    ]
+  }
+}

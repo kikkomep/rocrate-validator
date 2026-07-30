@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import csv
+import io
 import json
 import os
 import re
@@ -26,11 +28,12 @@ from pytest import fixture
 
 from rocrate_validator import services
 from rocrate_validator.cli.main import cli
-from rocrate_validator.models import BatchCrateEntry, BatchSession, ValidationSettings
+from rocrate_validator.models import BatchCrateEntry, BatchSession, BatchValidationResult, ValidationSettings
 from rocrate_validator.requirements.python import PyFunctionCheck
 from rocrate_validator.requirements.shacl.checks import SHACLCheck
 from rocrate_validator.services import discover_ro_crates
 from rocrate_validator.utils import log as logging
+from rocrate_validator.utils.io_helpers.output.csv_report import CSV_REPORT_FIELDS
 from rocrate_validator.utils.paths import get_user_runs_dir, get_user_sessions_dir
 from rocrate_validator.utils.versioning import get_version
 from tests.conftest import SKIP_LOCAL_DATA_ENTITY_EXISTENCE_CHECK_IDENTIFIER
@@ -508,6 +511,21 @@ def test_batch_crate_entry_serialization():
     assert restored.statistics == entry.statistics
 
 
+def test_batch_result_to_dict_is_the_v2_report():
+    """The programmatic API returns the same report the CLI writes."""
+    session = BatchSession(validation_settings={}, crate_paths=["/tmp/test-crate"])
+    session.crates[0].status = "completed"
+    session.crates[0].passed = True
+    session.completed_crates = 1
+
+    report = BatchValidationResult(session).to_dict()
+    assert report["meta"]["report_schema_version"] == "2.0"
+    assert sorted(report) == ["crates", "meta", "passed", "session", "statistics", "validation_settings"]
+    # The pre-v2 keys moved to the legacy renderer.
+    assert "batch_passed" not in report
+    assert "results" not in report
+
+
 def test_batch_session_save_load(tmp_path):
     """Test BatchSession save/load roundtrip."""
     settings = {"profile_identifier": "ro-crate", "requirement_severity": "REQUIRED"}
@@ -675,10 +693,236 @@ def test_batch_validate_json_output(cli_runner: CliRunner, tmp_path):
     )
     assert result.exit_code == 0, result.output
     assert output_file.exists()
-    # Use strict=False to handle any embedded control characters in validation messages
-    data = json.loads(output_file.read_text(), strict=False)
-    assert "meta" in data
+    data = json.loads(output_file.read_text())
+    assert data["meta"]["report_schema_version"] == "2.0"
+    assert data["session"]["mode"] == "single", "one matched crate is a session of one"
+    assert data["passed"] is True
+    assert [crate["name"] for crate in data["crates"]] == ["wrroc-paper-long-date"]
+
+
+def test_batch_validate_json_output_legacy_schema(cli_runner: CliRunner, tmp_path):
+    """--json-schema legacy keeps emitting the pre-v2 batch envelope."""
+    output_file = tmp_path / "batch_output.json"
+    valid_dir = str(ValidROC().wrroc_paper_long_date.parent)
+    result = cli_runner.invoke(
+        cli,
+        [
+            "--no-interactive",
+            "validate",
+            "--batch",
+            valid_dir,
+            "--batch-pattern",
+            "wrroc-paper-long-date",
+            "--profile-identifier",
+            "ro-crate-1.1",
+            "--no-paging",
+            "--output-format",
+            "json",
+            "--json-schema",
+            "legacy",
+            "--output-file",
+            str(output_file),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    data = json.loads(output_file.read_text())
     assert "batch_passed" in data
+    assert "results" in data
+    assert data["meta"]["version"], "the legacy report keeps its own meta.version"
+
+
+def test_batch_validate_split_per_crate(cli_runner: CliRunner, tmp_path, monkeypatch):
+    """--split-per-crate writes one report per crate plus the manifest tying them together."""
+    coll, _ = _make_collection(tmp_path, n=2)
+    # The default destination is relative to the working directory.
+    monkeypatch.chdir(tmp_path)
+    result = cli_runner.invoke(
+        cli, ["--no-interactive", "validate", str(coll), "-f", "json", "--split-per-crate", *_VALIDATE_OPTS]
+    )
+    assert result.exit_code in (0, 1), result.output
+
+    report_dir = tmp_path / "validation-report"
+    assert sorted(p.name for p in report_dir.glob("*.json")) == ["crate-0.json", "crate-1.json", "index.json"]
+
+    manifest = json.loads((report_dir / "index.json").read_text())
+    assert manifest["schema"] == "v2"
+    assert manifest["total_crates"] == 2
+    assert [crate["file"] for crate in manifest["crates"]] == ["crate-0.json", "crate-1.json"]
+
+    # Each file is a standalone v2 report of exactly one crate.
+    for crate in manifest["crates"]:
+        document = json.loads((report_dir / crate["file"]).read_text())
+        assert document["meta"]["report_schema_version"] == "2.0"
+        assert [item["path"] for item in document["crates"]] == [crate["path"]]
+
+
+def test_batch_validate_split_per_crate_legacy(cli_runner: CliRunner, tmp_path):
+    """Splitting is orthogonal to the schema: the same layout, legacy documents inside."""
+    coll, _ = _make_collection(tmp_path, n=2)
+    out_dir = tmp_path / "out"
+    result = cli_runner.invoke(
+        cli,
+        [
+            "--no-interactive",
+            "validate",
+            str(coll),
+            "-f",
+            "json",
+            "--split-per-crate",
+            "--json-schema",
+            "legacy",
+            "-d",
+            str(out_dir),
+            *_VALIDATE_OPTS,
+        ],
+    )
+    assert result.exit_code in (0, 1), result.output
+
+    # Files go directly into --output-dir.
+    assert sorted(p.name for p in out_dir.glob("*.json")) == [
+        "crate-0.json",
+        "crate-1.json",
+        "index.json",
+    ]
+    document = json.loads((out_dir / "crate-0.json").read_text())
+    assert sorted(document) == ["issues", "meta", "passed", "statistics", "validation_settings"]
+    assert json.loads((out_dir / "index.json").read_text())["schema"] == "legacy"
+
+
+def test_split_per_crate_rejects_non_json_formats(cli_runner: CliRunner, tmp_path):
+    """The flag shapes the JSON report only; asking for it elsewhere is an error."""
+    coll, _ = _make_collection(tmp_path, n=1)
+    result = cli_runner.invoke(
+        cli, ["--no-interactive", "validate", str(coll), "-f", "csv", "--split-per-crate", *_VALIDATE_OPTS]
+    )
+    assert result.exit_code == 2
+    assert "--split-per-crate applies to the JSON report only" in result.output
+
+
+def test_output_dir_with_relative_output_file(cli_runner: CliRunner, tmp_path):
+    """-d + relative -o: the output file is resolved against the base directory."""
+    coll, _ = _make_collection(tmp_path, n=1)
+    out_dir = tmp_path / "reports"
+    result = cli_runner.invoke(
+        cli,
+        [
+            "--no-interactive",
+            "validate",
+            str(coll),
+            "-f",
+            "json",
+            "-d",
+            str(out_dir),
+            "-o",
+            "result.json",
+            *_VALIDATE_OPTS,
+        ],
+    )
+    assert result.exit_code in (0, 1), result.output
+    assert (out_dir / "result.json").exists()
+    data = json.loads((out_dir / "result.json").read_text())
+    assert data["meta"]["report_schema_version"] == "2.0"
+
+
+def test_output_dir_with_absolute_output_file_warns(cli_runner: CliRunner, tmp_path):
+    """-d + absolute -o: -d is ignored with a warning, the absolute path is used."""
+    coll, _ = _make_collection(tmp_path, n=1)
+    out_dir = tmp_path / "ignored-dir"
+    abs_file = tmp_path / "absolute.json"
+    result = cli_runner.invoke(
+        cli,
+        [
+            "--no-interactive",
+            "validate",
+            str(coll),
+            "-f",
+            "json",
+            "-d",
+            str(out_dir),
+            "-o",
+            str(abs_file),
+            *_VALIDATE_OPTS,
+        ],
+    )
+    assert result.exit_code in (0, 1), result.output
+    assert "Warning:" in result.stderr
+    assert "--output-dir is ignored when --output-file is an absolute path" in result.stderr
+    assert abs_file.exists()
+    assert not out_dir.exists()
+
+
+def test_output_dir_without_output_file_or_split_warns(cli_runner: CliRunner, tmp_path):
+    """-d alone, with neither -o nor --split-per-crate: warns, output goes to stdout."""
+    coll, _ = _make_collection(tmp_path, n=1)
+    out_dir = tmp_path / "unused-dir"
+    result = cli_runner.invoke(
+        cli,
+        [
+            "--no-interactive",
+            "validate",
+            str(coll),
+            "-f",
+            "json",
+            "-d",
+            str(out_dir),
+            *_VALIDATE_OPTS,
+        ],
+    )
+    assert result.exit_code in (0, 1), result.output
+    assert "Warning:" in result.stderr
+    assert "--output-dir has no effect" in result.stderr
+    assert not out_dir.exists()
+
+
+def test_split_per_crate_warns_when_output_file_is_also_given(cli_runner: CliRunner, tmp_path, monkeypatch):
+    """-o is ignored with --split-per-crate; the user gets a warning on stderr."""
+    coll, _ = _make_collection(tmp_path, n=1)
+    monkeypatch.chdir(tmp_path)
+    result = cli_runner.invoke(
+        cli,
+        [
+            "--no-interactive",
+            "validate",
+            str(coll),
+            "-f",
+            "json",
+            "--split-per-crate",
+            "-o",
+            str(tmp_path / "ignored.json"),
+            *_VALIDATE_OPTS,
+        ],
+    )
+    assert result.exit_code in (0, 1), result.output
+    assert "Warning:" in result.stderr
+    assert "--output-file is ignored with --split-per-crate" in result.stderr
+    # The reports still went to the default directory, not the -o file.
+    assert (tmp_path / "validation-report").is_dir()
+    assert (tmp_path / "validation-report" / "index.json").exists()
+
+
+def test_split_per_crate_with_output_dir(cli_runner: CliRunner, tmp_path, monkeypatch):
+    """--split-per-crate with an explicit --output-dir writes reports there."""
+    coll, _ = _make_collection(tmp_path, n=2)
+    out_dir = tmp_path / "my-reports"
+    result = cli_runner.invoke(
+        cli,
+        [
+            "--no-interactive",
+            "validate",
+            str(coll),
+            "-f",
+            "json",
+            "--split-per-crate",
+            "-d",
+            str(out_dir),
+            *_VALIDATE_OPTS,
+        ],
+    )
+    assert result.exit_code in (0, 1), result.output
+    assert sorted(p.name for p in out_dir.glob("*.json")) == ["crate-0.json", "crate-1.json", "index.json"]
+    manifest = json.loads((out_dir / "index.json").read_text())
+    assert manifest["schema"] == "v2"
+    assert [crate["file"] for crate in manifest["crates"]] == ["crate-0.json", "crate-1.json"]
 
 
 def test_batch_validate_mixed_crates(cli_runner: CliRunner, tmp_path):
@@ -931,8 +1175,8 @@ def test_batch_validate_csv_output(cli_runner: CliRunner, tmp_path):
     assert ",PASSED," in rows[1]
 
 
-def test_batch_validate_csv_rejected_in_single_mode(cli_runner: CliRunner):
-    """CSV output is batch-only and must be rejected for single-crate validation."""
+def test_csv_output_in_single_mode(cli_runner: CliRunner):
+    """CSV is available for a single crate too, with the very same columns as the batch one."""
     result = cli_runner.invoke(
         cli,
         [
@@ -942,12 +1186,19 @@ def test_batch_validate_csv_rejected_in_single_mode(cli_runner: CliRunner):
             "--profile-identifier",
             "ro-crate",
             "--no-paging",
+            "--skip-checks",
+            SKIP_LOCAL_DATA_ENTITY_EXISTENCE_CHECK_IDENTIFIER,
             "--output-format",
             "csv",
         ],
     )
-    assert result.exit_code != 0
-    assert "csv" in result.output.lower()
+    # The verdict is beside the point here; only a crash would be.
+    assert result.exit_code in (0, 1), result.output
+    rows = list(csv.reader(io.StringIO(result.output)))
+    assert rows[0] == CSV_REPORT_FIELDS
+    # One crate, so no collection root to group by: the source column stays empty.
+    assert {row[0] for row in rows[1:]} == {""}
+    assert {row[1] for row in rows[1:]} == {"wrroc-paper-long-date"}
 
 
 def test_batch_validate_no_crates_found(cli_runner: CliRunner, tmp_path):
@@ -965,7 +1216,60 @@ def test_batch_validate_no_crates_found(cli_runner: CliRunner, tmp_path):
         ],
     )
     assert result.exit_code == 0
-    assert "No RO-Crates found" in result.output
+    # The notice belongs on stderr, so it never lands inside a machine-readable report.
+    assert "No RO-Crates found" in result.stderr
+
+
+def test_batch_no_crates_found_still_emits_a_json_report(cli_runner: CliRunner, tmp_path):
+    """
+    A batch that matched nothing yields an empty report, not an empty stream:
+    a consumer should not have to tell "nothing matched" apart from "the command
+    produced no output".
+    """
+    empty_dir = tmp_path / "empty"
+    empty_dir.mkdir()
+    result = cli_runner.invoke(
+        cli, ["--no-interactive", "validate", "--batch", str(empty_dir), "-f", "json", *_VALIDATE_OPTS]
+    )
+    assert result.exit_code == 0, result.output
+
+    # stdout parses on its own: the human notice went to stderr.
+    report = json.loads(result.stdout)
+    assert report["crates"] == []
+    assert report["passed"] is True
+    assert report["session"]["total_crates"] == 0
+    assert report["statistics"]["crates_with_statistics"] == 0
+    assert "No RO-Crates found" in result.stderr
+
+
+def test_batch_no_crates_found_still_emits_a_csv_header(cli_runner: CliRunner, tmp_path):
+    """The CSV of an empty batch is its header row: a valid, empty table."""
+    empty_dir = tmp_path / "empty"
+    empty_dir.mkdir()
+    result = cli_runner.invoke(
+        cli, ["--no-interactive", "validate", "--batch", str(empty_dir), "-f", "csv", *_VALIDATE_OPTS]
+    )
+    assert result.exit_code == 0, result.output
+    rows = list(csv.reader(io.StringIO(result.stdout)))
+    assert rows == [CSV_REPORT_FIELDS]
+
+
+def test_batch_no_crates_found_split_writes_only_the_manifest(cli_runner: CliRunner, tmp_path, monkeypatch):
+    """Splitting an empty batch leaves the manifest alone to say so."""
+    empty_dir = tmp_path / "empty"
+    empty_dir.mkdir()
+    monkeypatch.chdir(tmp_path)
+    result = cli_runner.invoke(
+        cli,
+        ["--no-interactive", "validate", "--batch", str(empty_dir), "-f", "json", "--split-per-crate", *_VALIDATE_OPTS],
+    )
+    assert result.exit_code == 0, result.output
+
+    report_dir = tmp_path / "validation-report"
+    assert [p.name for p in report_dir.glob("*.json")] == ["index.json"]
+    manifest = json.loads((report_dir / "index.json").read_text())
+    assert manifest["crates"] == []
+    assert manifest["total_crates"] == 0
 
 
 def test_batch_with_output_file_text(cli_runner: CliRunner, tmp_path):
@@ -1634,6 +1938,28 @@ def test_sessions_report_output_file_text(cli_runner: CliRunner, isolated_sessio
     assert "Outcome Summary" in content
     # No ANSI colour codes in default text output.
     assert "\x1b[" not in content
+
+
+def test_sessions_report_json_is_the_v2_report(cli_runner: CliRunner, isolated_sessions_dir, tmp_path):
+    """Reporting a stored session yields the same document `validate -f json` writes."""
+    output_file = tmp_path / "report.json"
+    _write_fake_session(
+        isolated_sessions_dir,
+        "s1",
+        status="completed",
+        total=2,
+        completed=2,
+        failed=0,
+        paths=["/a/x", "/a/y"],
+    )
+    result = cli_runner.invoke(
+        cli, ["--no-interactive", "sessions", "report", "s1", "-f", "json", "-o", str(output_file)]
+    )
+    assert result.exit_code == 0, result.output
+    report = json.loads(output_file.read_text())
+    assert report["meta"]["report_schema_version"] == "2.0"
+    assert report["session"]["mode"] == "batch"
+    assert [crate["path"] for crate in report["crates"]] == ["/a/x", "/a/y"]
 
 
 def test_sessions_report_output_file_text_with_color(cli_runner: CliRunner, isolated_sessions_dir, tmp_path):
