@@ -428,9 +428,11 @@
   },
   "passed": false,
   "session": {
-    "completed_crates": 2,
-    "failed_crates": 1,
+    "errored_crates": 0,
+    "invalid_crates": 1,
     "mode": "batch",
+    "passed_crates": 1,
+    "pending_crates": 0,
     "status": "completed",
     "total_crates": 2
   },

@@ -25,6 +25,7 @@ from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
 from rich.rule import Rule
 from rich.table import Table
 
+from rocrate_validator.models.outcome import crate_outcome
 from rocrate_validator.models.severity import Severity
 from rocrate_validator.utils import log as logging
 from rocrate_validator.utils.io_helpers.colors import get_severity_color
@@ -105,6 +106,17 @@ def format_crate_line(
         return f"  [yellow]⚠[/yellow] {idx} {name_cell}  [yellow]{detail}[/yellow]"
     return f"  [dim]·[/dim] {idx} {name_cell}  [dim]pending[/dim]"
 
+
+# The Status cell of the summary table, per crate outcome. A crate the
+# validation could not run on is not a failed validation, and one that was
+# never reached is neither: labelling both FAILED (as the cell used to, for
+# anything that did not pass) told three different situations as one.
+_SUMMARY_STATUS = {
+    "passed": "[green]✓ PASSED[/green]",
+    "invalid": "[red]✗ FAILED[/red]",
+    "errored": "[yellow]⚠ ERROR[/yellow]",
+    "pending": "[dim]· PENDING[/dim]",
+}
 
 _STATUS_STYLES = {
     "completed": "green",
@@ -461,7 +473,7 @@ class BatchValidationCommandView:
             crate_name,
             ", ".join(entry.profiles or []) or "—",
             size,
-            "[green]✓ PASSED[/green]" if entry.passed else "[red]✗ FAILED[/red]",
+            _SUMMARY_STATUS[crate_outcome(entry.status, entry.passed)],
             str(stats.get("total_checks", 0)),
             str(stats.get("total_passed_checks", 0)),
             str(len(entry.issues or [])),

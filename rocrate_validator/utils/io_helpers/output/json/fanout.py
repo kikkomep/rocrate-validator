@@ -32,6 +32,7 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from rocrate_validator.models.outcome import PROCESSED_STATUSES, crate_counts
 from rocrate_validator.utils import log as logging
 from rocrate_validator.utils.io_helpers.output.json.report import build_report, report_meta
 from rocrate_validator.utils.versioning import get_version
@@ -139,7 +140,7 @@ def crate_v2_doc(
 
 def _entry_session_status(entry: BatchCrateEntry) -> str:
     """The session status a one-crate report deserves: was this crate processed?"""
-    return "completed" if entry.status in ("completed", "failed") else "interrupted"
+    return "completed" if entry.status in PROCESSED_STATUSES else "interrupted"
 
 
 def resolve_destination(output_dir: Path | None) -> Path:
@@ -169,9 +170,7 @@ def manifest(
         "status": session.status,
         "schema": schema,
         "passed": passed,
-        "total_crates": len(entries),
-        "completed_crates": sum(1 for entry in entries if entry.status == "completed"),
-        "failed_crates": sum(1 for entry in entries if entry.status in ("completed", "failed") and not entry.passed),
+        **crate_counts(entries),
         "crates": [
             {
                 "id": ids[entry.path],

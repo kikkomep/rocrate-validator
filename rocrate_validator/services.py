@@ -535,17 +535,16 @@ def _prepare_batch_session(
     if previous is None or previous.is_completed():
         return session, list(rocrate_uris)
 
-    # Resume an interrupted session: carry over already-completed crates and
-    # validate the rest. Newly discovered crates are included as pending.
+    # Resume an interrupted session: carry over the crates that were validated
+    # and validate the rest. Newly discovered crates are included as pending,
+    # and so are the crates that errored out: an error is often transient (an
+    # unreachable URI, a locked file), so a resume gives them another go.
     completed = {e.path: e for e in previous.crates if e.status == "completed"}
     session.crates = [completed.get(p) or BatchCrateEntry(path=p, status="pending") for p in rocrate_uris]
-    session.total_crates = len(session.crates)
-    session.completed_crates = sum(1 for e in session.crates if e.status == "completed")
-    session.failed_crates = sum(1 for e in session.crates if e.status == "completed" and e.passed is False)
     pending = [e.path for e in session.crates if e.status != "completed"]
     logger.info(
         "Resuming batch session: %d/%d crates already validated, %d to validate",
-        session.completed_crates,
+        session.total_crates - len(pending),
         session.total_crates,
         len(pending),
     )
@@ -632,7 +631,7 @@ def _validate_one_in_batch(
             progress_callback(str(crate_path), idx + 1, total, status, f"({total_issues} issues)", profiles)
         return [(str(crate_path), r) for _, r in profile_results]
     except Exception as e:
-        session.mark_failed(str(crate_path), str(e), time.time() - start)
+        session.mark_errored(str(crate_path), str(e), time.time() - start)
         if progress_callback:
             progress_callback(str(crate_path), idx + 1, total, "error", str(e))
         return None

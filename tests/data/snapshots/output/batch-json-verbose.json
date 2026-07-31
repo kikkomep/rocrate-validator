@@ -768,10 +768,12 @@
     }
   ],
   "session": {
-    "completed_crates": 2,
     "created_at": "<volatile>",
-    "failed_crates": 1,
+    "errored_crates": 0,
+    "invalid_crates": 1,
     "mode": "batch",
+    "passed_crates": 1,
+    "pending_crates": 0,
     "rocrate_validator_version": "<version>",
     "status": "completed",
     "total_crates": 2,

@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from rocrate_validator.constants import REPORT_SCHEMA_VERSION
+from rocrate_validator.models.outcome import crate_counts
 from rocrate_validator.models.result import CustomEncoder
 from rocrate_validator.utils import log as logging
 from rocrate_validator.utils.versioning import get_version
@@ -207,15 +208,12 @@ def build_report(
         its subset everywhere but there. Defaults to the session's own status.
     """
     entries = session.crates if crates is None else crates
-    failed = sum(1 for entry in entries if entry.status in ("completed", "failed") and not entry.passed)
     return {
         "meta": report_meta(),
         "session": {
             "mode": "single" if len(entries) == 1 else "batch",
             "status": session.status if status is None else status,
-            "total_crates": len(entries),
-            "completed_crates": sum(1 for entry in entries if entry.status == "completed"),
-            "failed_crates": failed,
+            **crate_counts(entries),
         },
         "validation_settings": validation_settings(session),
         "passed": passed,

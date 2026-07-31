@@ -118,8 +118,10 @@ def test_split_report_status_stays_consistent_with_the_rest_of_the_block():
         "mode": "single",
         "status": "completed",
         "total_crates": 1,
-        "completed_crates": 1,
-        "failed_crates": 0,
+        "passed_crates": 1,
+        "invalid_crates": 0,
+        "errored_crates": 0,
+        "pending_crates": 0,
     }
 
 

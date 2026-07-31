@@ -26,6 +26,11 @@ from rocrate_validator.models.events import (
     RequirementValidationEvent,
     ValidationEvent,
 )
+from rocrate_validator.models.outcome import (
+    PROCESSED_STATUSES,
+    crate_counts,
+    crate_outcome,
+)
 from rocrate_validator.models.profile import Profile
 from rocrate_validator.models.requirement import (
     Requirement,
@@ -62,6 +67,7 @@ from rocrate_validator.utils.uri import URI
 
 __all__ = [
     "DEFAULT_PROFILES_PATH",
+    "PROCESSED_STATUSES",
     "URI",
     "AggregatedValidationStatistics",
     "BaseTypes",
@@ -91,5 +97,7 @@ __all__ = [
     "ValidationStatistics",
     "ValidationStatisticsListener",
     "Validator",
+    "crate_counts",
+    "crate_outcome",
     "logger",
 ]

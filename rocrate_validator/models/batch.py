@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 
 from rocrate_validator import __version__
 from rocrate_validator.models.cache import ValidationCache
+from rocrate_validator.models.outcome import PROCESSED_STATUSES, crate_counts
 from rocrate_validator.models.result import CustomEncoder, ValidationResult
 
 
@@ -34,7 +35,7 @@ class BatchCrateEntry:
     """Represents a single entry in a batch validation session."""
 
     path: str
-    status: str  # pending | in_progress | completed | failed | skipped
+    status: str  # pending | in_progress | completed | errored
     passed: bool | None = None
     duration: float | None = None
     error: str | None = None
@@ -95,9 +96,6 @@ class ValidationSession:
         self.created_at: datetime = datetime.now(timezone.utc)
         self.updated_at: datetime = self.created_at
         self.status: str = "in_progress"
-        self.total_crates: int = len(crate_paths)
-        self.completed_crates: int = 0
-        self.failed_crates: int = 0
         self.validation_settings: dict = validation_settings
         self.session_path: Path | None = session_path
         self.crates: list[BatchCrateEntry] = [BatchCrateEntry(path=p, status="pending") for p in crate_paths]
@@ -156,6 +154,47 @@ class ValidationSession:
         """``"single"`` when the session tracks one crate, ``"batch"`` otherwise."""
         return "single" if self.total_crates == 1 else "batch"
 
+    # The counters are *derived* from the entries rather than accumulated as the
+    # run progresses: the entries are the only state that has to be persisted
+    # and resumed correctly, so counting them on demand is the one way for the
+    # counters to be right by construction — no increment to forget, no
+    # decrement to undo when a crate is re-validated, no recomputation to keep
+    # in sync at each site that reads them.
+
+    @property
+    def total_crates(self) -> int:
+        return len(self.crates)
+
+    @property
+    def passed_crates(self) -> int:
+        """Crates that validated and conform."""
+        return self.counts["passed_crates"]
+
+    @property
+    def invalid_crates(self) -> int:
+        """Crates that validated and do *not* conform."""
+        return self.counts["invalid_crates"]
+
+    @property
+    def errored_crates(self) -> int:
+        """Crates the validation could not run on at all."""
+        return self.counts["errored_crates"]
+
+    @property
+    def pending_crates(self) -> int:
+        """Crates still to be processed."""
+        return self.counts["pending_crates"]
+
+    @property
+    def processed_crates(self) -> int:
+        """Crates with an outcome, whatever it is (passed, invalid or errored)."""
+        return self.total_crates - self.pending_crates
+
+    @property
+    def counts(self) -> dict[str, int]:
+        """Every counter in one dict, as reported in the session file."""
+        return crate_counts(self.crates)
+
     def validate(
         self,
         rocrate_uri: str | Path,
@@ -192,19 +231,16 @@ class ValidationSession:
     def _ensure_entry(self, crate_path: str) -> BatchCrateEntry:
         """
         Return the entry for ``crate_path``, creating it when missing and
-        resetting it (with consistent counters) when it holds a previous outcome.
+        resetting it when it holds a previous outcome (the counters follow, as
+        they are derived from the entries).
         """
         entry = self._find_entry(crate_path)
         if entry is None:
             entry = BatchCrateEntry(path=crate_path, status="pending")
             self.crates.append(entry)
-            self.total_crates = len(self.crates)
             return entry
-        if entry.status in ("completed", "failed"):
-            # overwrite semantics: drop the previous outcome from the counters
-            self.completed_crates = max(0, self.completed_crates - 1)
-            if entry.passed is False:
-                self.failed_crates = max(0, self.failed_crates - 1)
+        if entry.status in PROCESSED_STATUSES:
+            # overwrite semantics: drop the previous outcome
             entry.status = "pending"
             entry.passed = None
             entry.duration = None
@@ -262,9 +298,6 @@ class ValidationSession:
         entry.issues = issues
         entry.statistics = self._aggregate_statistics(normalized)
         entry.size_bytes = self._compute_size_bytes(crate_path)
-        self.completed_crates += 1
-        if not passed:
-            self.failed_crates += 1
 
     @staticmethod
     def _aggregate_statistics(results: list[ValidationResult]) -> dict[str, Any] | None:
@@ -286,25 +319,31 @@ class ValidationSession:
             aggregated[key] = sum(d.get(key, 0) or 0 for d in stat_dicts)
         return aggregated
 
-    def mark_failed(self, crate_path: str, error: str, duration: float = 0.0):
-        """Mark a crate as failed with an error message."""
+    def mark_errored(self, crate_path: str, error: str, duration: float = 0.0):
+        """
+        Mark a crate as *errored*: the validation could not run on it.
+
+        This is not a failed validation — the crate has no verdict on
+        conformance at all — and it is counted apart from the invalid ones
+        (see :func:`crate_outcome`). It does count as processed, though: the run
+        is done with this crate and will not come back to it.
+        """
         entry = self._find_entry(crate_path)
         if entry is None:
             return
-        entry.status = "failed"
+        entry.status = "errored"
         entry.passed = False
         entry.duration = duration
         entry.error = error
         entry.size_bytes = self._compute_size_bytes(crate_path)
-        self.completed_crates += 1
-        self.failed_crates += 1
 
     def get_pending(self) -> list[BatchCrateEntry]:
         """Return entries that still need validation."""
-        return [e for e in self.crates if e.status in ("pending", "in_progress")]
+        return [e for e in self.crates if e.status not in PROCESSED_STATUSES]
 
     def is_completed(self) -> bool:
-        return self.completed_crates >= self.total_crates
+        """True when every crate has an outcome, errors included."""
+        return self.pending_crates == 0
 
     def save(self, path: Path | None = None):
         """Serialize the session to a JSON file."""
@@ -328,9 +367,7 @@ class ValidationSession:
                 "updated_at": self.updated_at.isoformat(),
                 "status": self.status,
                 "mode": self.mode,
-                "total_crates": self.total_crates,
-                "completed_crates": self.completed_crates,
-                "failed_crates": self.failed_crates,
+                **self.counts,
             },
             "validation_settings": self.validation_settings,
             "batch_options": {
@@ -353,9 +390,8 @@ class ValidationSession:
         instance.created_at = datetime.fromisoformat(session_data["created_at"])
         instance.updated_at = datetime.fromisoformat(session_data["updated_at"])
         instance.status = session_data["status"]
-        instance.total_crates = session_data["total_crates"]
-        instance.completed_crates = session_data["completed_crates"]
-        instance.failed_crates = session_data["failed_crates"]
+        # The counters stored in the file are not read back: they are derived
+        # from the entries, so a file cannot bring inconsistent ones along.
         instance.validation_settings = data.get("validation_settings", {})
         batch_options = data.get("batch_options", {})
         instance.profile_identifiers = batch_options.get("profile_identifiers")
@@ -417,7 +453,8 @@ class BatchValidationResult:
         return self.session.crates
 
     def passed(self) -> bool:
-        return self.session.failed_crates == 0 and self.session.is_completed()
+        """True when every crate was processed and none is invalid or errored."""
+        return self.session.invalid_crates == 0 and self.session.errored_crates == 0 and self.session.is_completed()
 
     def total_crates(self) -> int:
         return len(self.session.crates)
@@ -425,8 +462,21 @@ class BatchValidationResult:
     def passed_entries(self) -> list[BatchCrateEntry]:
         return [e for e in self.session.crates if e.passed]
 
+    def invalid_entries(self) -> list[BatchCrateEntry]:
+        """Crates that validated and do not conform."""
+        return [e for e in self.session.crates if e.status == "completed" and not e.passed]
+
+    def errored_entries(self) -> list[BatchCrateEntry]:
+        """Crates the validation could not run on."""
+        return [e for e in self.session.crates if e.status == "errored"]
+
     def failed_entries(self) -> list[BatchCrateEntry]:
-        return [e for e in self.session.crates if e.status in ("completed", "failed") and not e.passed]
+        """
+        Crates that did not pass, invalid *and* errored — the union the final
+        verdict is about ("N out of M failed"). Use :meth:`invalid_entries` or
+        :meth:`errored_entries` when the two have to be told apart.
+        """
+        return [e for e in self.session.crates if e.status in PROCESSED_STATUSES and not e.passed]
 
     def to_dict(self, verbose: bool = False) -> dict:
         """

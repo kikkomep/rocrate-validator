@@ -361,10 +361,9 @@ def _show_session(
     if session.is_completed():
         render_batch_footer(console, result, [])
     else:
-        pending = sum(1 for e in entries if e.status not in ("completed", "failed"))
         console.print(
             f"\n  [yellow]⚠ Session interrupted[/yellow] — "
-            f"{session.completed_crates}/{len(entries)} validated, {pending} pending\n"
+            f"{session.processed_crates}/{len(entries)} validated, {session.pending_crates} pending\n"
         )
 
 
@@ -845,8 +844,8 @@ def _select_resume_target(
 def _resume_choice_label(summary: dict) -> str:
     """Build the menu label for a resumable session."""
     total = summary["total_crates"]
-    completed = summary["completed_crates"] or 0
-    progress = f"{completed}/{total}" if total is not None else "?"
+    processed = summary["processed_crates"] or 0
+    progress = f"{processed}/{total}" if total is not None else "?"
     target = summary["target"] or "—"
     return f"{summary['id'][:12]}  [{summary['status']}]  {progress}  {target}"
 
@@ -966,8 +965,11 @@ def _read_session_summary(path: Path) -> dict:
         "status": "unknown",
         "mode": None,
         "total_crates": None,
-        "completed_crates": None,
-        "failed_crates": None,
+        "passed_crates": None,
+        "invalid_crates": None,
+        "errored_crates": None,
+        "pending_crates": None,
+        "processed_crates": None,
         "created_at": None,
         "updated_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc),
         "target": None,
@@ -983,8 +985,13 @@ def _read_session_summary(path: Path) -> dict:
         summary["mode"] = session.get("mode") or (
             ("single" if session.get("total_crates") == 1 else "batch") if session.get("total_crates") else None
         )
-        summary["completed_crates"] = session.get("completed_crates")
-        summary["failed_crates"] = session.get("failed_crates")
+        # The counters are read from the file header rather than recomputed from
+        # the entries: listing many sessions must stay cheap, and the header is
+        # written from the entries anyway.
+        for key in ("passed_crates", "invalid_crates", "errored_crates", "pending_crates"):
+            summary[key] = session.get(key)
+        if summary["total_crates"] is not None and summary["pending_crates"] is not None:
+            summary["processed_crates"] = summary["total_crates"] - summary["pending_crates"]
         summary["created_at"] = _parse_iso(session.get("created_at"))
         summary["updated_at"] = _parse_iso(session.get("updated_at")) or summary["updated_at"]
         summary["target"] = _derive_target([c.get("path", "") for c in data.get("crates", [])])
@@ -1015,8 +1022,10 @@ def _summary_to_dict(summary: dict) -> dict:
         "status": summary["status"],
         "mode": summary["mode"],
         "total_crates": summary["total_crates"],
-        "completed_crates": summary["completed_crates"],
-        "failed_crates": summary["failed_crates"],
+        "passed_crates": summary["passed_crates"],
+        "invalid_crates": summary["invalid_crates"],
+        "errored_crates": summary["errored_crates"],
+        "pending_crates": summary["pending_crates"],
         "target": summary["target"],
         "size_bytes": summary["size_bytes"],
         "created_at": _iso(summary["created_at"]),
@@ -1027,24 +1036,25 @@ def _summary_to_dict(summary: dict) -> dict:
 
 def _format_crates(summary: dict) -> str:
     """
-    Render the crates cell: the processed/total fraction on the first line,
-    then the valid (✓) and invalid (✗) counts on their own lines. Zero counts
-    are omitted so all-passed and all-failed sessions stay compact.
+    Render the crates cell: the processed/total fraction on the first line, then
+    the valid (✓), invalid (✗) and errored (⚠) counts on their own lines. Zero
+    counts are omitted so the common cases stay compact.
     """
     total = summary["total_crates"]
     if total is None:
         return "—"
-    completed = summary["completed_crates"] or 0
-    failed = summary["failed_crates"] or 0
-    valid = max(completed - failed, 0)
+    processed = summary["processed_crates"] or 0
     # Orange flags partial progress; once every crate is processed the count
     # takes the same colour as the total.
-    completed_colour = "orange3" if completed < total else "cyan"
-    lines = [f"[bold {completed_colour}]{completed}[/bold {completed_colour}]/[bold cyan]{total}[/bold cyan]"]
-    if valid:
-        lines.append(f"[green]✓ {valid}[/green]")
-    if failed:
-        lines.append(f"[red]✗ {failed}[/red]")
+    processed_colour = "orange3" if processed < total else "cyan"
+    lines = [f"[bold {processed_colour}]{processed}[/bold {processed_colour}]/[bold cyan]{total}[/bold cyan]"]
+    for count, icon, colour in (
+        (summary["passed_crates"], "✓", "green"),
+        (summary["invalid_crates"], "✗", "red"),
+        (summary["errored_crates"], "⚠", "yellow"),
+    ):
+        if count:
+            lines.append(f"[{colour}]{icon} {count}[/{colour}]")
     return "\n".join(lines)
 
 

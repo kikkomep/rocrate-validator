@@ -21,12 +21,14 @@ records (``BatchCrateEntry.to_dict()`` output, the same shape stored in a sessio
 file) and renders to a provided :class:`rich.console.Console`. The chart
 generation of the original script is intentionally not included.
 
-Each crate is classified into one of three mutually exclusive states:
+Each crate is classified into one of four mutually exclusive states, mapped
+from :func:`~rocrate_validator.models.batch.crate_outcome`:
 
-* ``PASSED`` — validation succeeded (``passed`` is true);
-* ``FAILED`` — validation ran and reported one or more issues;
-* ``ERROR``  — validation could not run (e.g. a non-RO-Crate input): the crate
-  carries an ``error`` message but no issues and no statistics.
+* ``PASSED``  — validation ran and the crate conforms;
+* ``FAILED``  — validation ran and reported one or more issues;
+* ``ERROR``   — validation could not run (e.g. a non-RO-Crate input): the crate
+  carries an ``error`` message but no issues and no statistics;
+* ``PENDING`` — the crate was never processed (an interrupted session).
 """
 
 from __future__ import annotations
@@ -48,6 +50,7 @@ from rich.table import Table
 from rich.text import Text
 
 from rocrate_validator.constants import BYTES_PER_KIB
+from rocrate_validator.models.outcome import crate_outcome
 from rocrate_validator.utils.io_helpers.colors import get_severity_color
 
 if TYPE_CHECKING:
@@ -63,6 +66,17 @@ _MIN_SAMPLES_FOR_SPREAD = 2
 # ===========================================================================
 # Normalisation and aggregation
 # ===========================================================================
+
+
+# The label each outcome is rendered with here. The classification itself comes
+# from the model, so the text statistics, the JSON report and `sessions list`
+# cannot drift into disagreeing on what a crate's outcome was.
+_STATUS_BY_OUTCOME = {
+    "passed": "PASSED",
+    "invalid": "FAILED",
+    "errored": "ERROR",
+    "pending": "PENDING",
+}
 
 
 def _error_types(issues: list[dict]) -> list[tuple[str, str]]:
@@ -86,13 +100,7 @@ def normalise_crate(crate: dict) -> dict:
     stats = crate.get("statistics") or {}
     issues = crate.get("issues") or []
     passed = bool(crate.get("passed"))
-
-    if passed:
-        status = "PASSED"
-    elif issues:
-        status = "FAILED"
-    else:
-        status = "ERROR"
+    status = _STATUS_BY_OUTCOME[crate_outcome(crate.get("status"), crate.get("passed"))]
 
     return {
         "path": crate["path"],
@@ -131,7 +139,13 @@ def failed_crates(crates: list[dict]) -> list[dict]:
 
 
 def errored_crates(crates: list[dict]) -> list[dict]:
+    """Crates the validation could not run on at all."""
     return [c for c in crates if c["status"] == "ERROR"]
+
+
+def pending_crates(crates: list[dict]) -> list[dict]:
+    """Crates never processed — only an interrupted session has any."""
+    return [c for c in crates if c["status"] == "PENDING"]
 
 
 def crates_per_check(failed: list[dict]) -> tuple[Counter, dict[str, str]]:
@@ -379,6 +393,11 @@ def _print_summary_table(con: Console, crates: list[dict]) -> None:
         ("FAILED", len(failed_crates(crates)), "red"),
         ("ERROR", len(errored_crates(crates)), "yellow"),
     ]
+    # Only an interrupted session has unprocessed crates: the row is omitted
+    # rather than shown at zero, which is the case for every finished run.
+    pending = len(pending_crates(crates))
+    if pending:
+        rows.append(("PENDING", pending, "dim"))
     table = _rtable()
     table.add_column("Status")
     table.add_column("Crates", justify="right")

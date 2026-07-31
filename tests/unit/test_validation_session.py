@@ -38,7 +38,8 @@ def test_session_records_and_persists_single_crate(tmp_path):
 
     assert session.mode == "single"
     assert session.status == "completed"
-    assert session.total_crates == session.completed_crates == 1
+    assert session.total_crates == session.processed_crates == 1
+    assert session.pending_crates == session.errored_crates == 0
 
     data = json.loads(session_file.read_text())
     assert data["session"]["mode"] == "single"
@@ -70,8 +71,8 @@ def test_revalidation_overwrites_entry(tmp_path):
         session.validate(CRATE, profile_identifiers="ro-crate-1.1")
 
     assert session.total_crates == 1, "re-validation must overwrite, not append"
-    assert session.completed_crates == 1
-    assert session.failed_crates <= 1
+    assert session.processed_crates == 1
+    assert session.pending_crates == 0
 
 
 def test_session_cache_reused_across_validations(tmp_path):
@@ -115,7 +116,7 @@ def test_session_records_validation_errors(tmp_path):
     assert outcome is None
     entry = session._find_entry(str(tmp_path / "missing-crate"))
     assert entry is not None
-    assert entry.status == "failed"
+    assert entry.status == "errored"
     assert entry.error
 
 

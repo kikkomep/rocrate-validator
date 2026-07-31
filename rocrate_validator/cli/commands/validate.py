@@ -807,9 +807,7 @@ def _is_interrupted_state(state_path: Path) -> dict | None:
     summary = _read_state_summary(state_path)
     if not summary:
         return None
-    completed = summary.get("completed_crates") or 0
-    total = summary.get("total_crates") or 0
-    if summary.get("status") in ("in_progress", "interrupted") and completed < total:
+    if summary.get("status") in ("in_progress", "interrupted") and (summary.get("pending_crates") or 0) > 0:
         return summary
     return None
 
@@ -901,20 +899,20 @@ def _decide_fresh(
         return False  # nothing to resume: a fresh run either way
     if resume:
         return False
-    completed = interrupted.get("completed_crates") or 0
     total = interrupted.get("total_crates") or 0
+    processed = total - (interrupted.get("pending_crates") or 0)
     if interactive:
         stderr_console = Console(file=sys.stderr, no_color=console.no_color, width=console.width)
         stderr_console.print(
             f"[yellow]Found an interrupted validation matching this command "
-            f"({completed}/{total} crates already validated).[/yellow]"
+            f"({processed}/{total} crates already validated).[/yellow]"
         )
         return not click.confirm("Resume it? ('n' restarts from scratch)", default=True, err=True)
     logger.info(
         "Interrupted state found at %s (%d/%d crates) but running non-interactively: starting fresh. "
         "Pass --resume to continue it.",
         state_path,
-        completed,
+        processed,
         total,
     )
     return True

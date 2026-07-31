@@ -516,7 +516,6 @@ def test_batch_result_to_dict_is_the_v2_report():
     session = BatchSession(validation_settings={}, crate_paths=["/tmp/test-crate"])
     session.crates[0].status = "completed"
     session.crates[0].passed = True
-    session.completed_crates = 1
 
     report = BatchValidationResult(session).to_dict()
     assert report["meta"]["report_schema_version"] == "2.0"
@@ -535,11 +534,9 @@ def test_batch_session_save_load(tmp_path):
         session_path=tmp_path / "session.json",
     )
     assert session.total_crates == 2
-    assert session.completed_crates == 0
+    assert session.processed_crates == 0
 
     # Simulate a completed crate
-    session.completed_crates = 1
-    session.failed_crates = 0
     session.crates[0].status = "completed"
     session.crates[0].passed = True
     session.save()
@@ -547,7 +544,8 @@ def test_batch_session_save_load(tmp_path):
     # Load it back
     loaded = BatchSession.load(tmp_path / "session.json")
     assert loaded.total_crates == 2
-    assert loaded.completed_crates == 1
+    assert loaded.processed_crates == 1
+    assert loaded.passed_crates == 1
     assert loaded.validation_settings["profile_identifier"] == "ro-crate"
     assert loaded.crates[0].status == "completed"
     assert loaded.crates[0].passed is True
@@ -572,19 +570,28 @@ def test_batch_session_is_completed():
     """Test is_completed returns True only when all crates done."""
     session = BatchSession(validation_settings={}, crate_paths=["/tmp/a"])
     assert not session.is_completed()
-    session.completed_crates = 1
+    session.crates[0].status = "completed"
+    session.crates[0].passed = True
     assert session.is_completed()
 
 
-def test_batch_session_mark_failed():
-    """Test mark_failed updates session state correctly."""
+def test_batch_session_is_completed_counts_errored_crates():
+    """A crate the validation could not run on is processed all the same."""
     session = BatchSession(validation_settings={}, crate_paths=["/tmp/a"])
-    session.mark_failed("/tmp/a", "Connection error", 0.5)
-    assert session.crates[0].status == "failed"
+    session.mark_errored("/tmp/a", "Not an RO-Crate")
+    assert session.is_completed()
+
+
+def test_batch_session_mark_errored():
+    """Test mark_errored updates session state correctly."""
+    session = BatchSession(validation_settings={}, crate_paths=["/tmp/a"])
+    session.mark_errored("/tmp/a", "Connection error", 0.5)
+    assert session.crates[0].status == "errored"
     assert session.crates[0].passed is False
     assert session.crates[0].error == "Connection error"
-    assert session.completed_crates == 1
-    assert session.failed_crates == 1
+    assert session.errored_crates == 1
+    assert session.invalid_crates == 0, "an error is not an invalid crate"
+    assert session.processed_crates == 1
 
 
 def test_batch_validate_valid_crates(cli_runner: CliRunner):
@@ -638,7 +645,7 @@ def test_batch_validate_session_opt_in(cli_runner: CliRunner, isolated_sessions_
     assert sessions, "no session file was created despite --session"
     session_data = json.loads(max(sessions, key=lambda p: p.stat().st_mtime).read_text())
     assert session_data["session"]["status"] == "completed"
-    assert session_data["session"]["completed_crates"] >= 1
+    assert session_data["session"]["passed_crates"] >= 1
     assert session_data["crates"][0]["status"] == "completed"
     # The profile used is recorded per crate in the session.
     assert session_data["crates"][0]["profiles"] == ["ro-crate-1.1"]
@@ -986,11 +993,9 @@ def test_batch_verbose_details_rendered_from_session_entries():
         }
     ]
     errored = session.crates[1]
-    errored.status = "failed"
+    errored.status = "errored"
     errored.passed = False
     errored.error = "RO-Crate metadata not found"
-    session.completed_crates = 2
-    session.failed_crates = 2
 
     out = Console(file=io.StringIO(), width=200, color_system=None)
     BatchValidationCommandView(console=out).show_summary(BatchValidationResult(session), verbose=True)
@@ -1039,7 +1044,6 @@ def test_batch_prepare_session_auto_resume(tmp_path):
     session = BatchSession(validation_settings={}, crate_paths=paths, session_path=session_file)
     session.crates[0].status = "completed"
     session.crates[0].passed = True
-    session.completed_crates = 1
     session.status = "interrupted"
     session.save()
 
@@ -1047,13 +1051,13 @@ def test_batch_prepare_session_auto_resume(tmp_path):
 
     # Resume (fresh=False): the completed crate is skipped, the rest are pending.
     resumed, pending = services._prepare_batch_session(settings, paths, session_file, fresh=False)
-    assert resumed.completed_crates == 1
+    assert resumed.processed_crates == 1
     assert resumed.total_crates == 3
     assert set(pending) == {"/tmp/crate_b", "/tmp/crate_c"}
 
     # Fresh (fresh=True): everything is re-validated, nothing carried over.
     restarted, pending_fresh = services._prepare_batch_session(settings, paths, session_file, fresh=True)
-    assert restarted.completed_crates == 0
+    assert restarted.processed_crates == 0
     assert set(pending_fresh) == set(paths)
 
 
@@ -1389,7 +1393,6 @@ def _write_interrupted_state(state_path: Path, crate_paths: list[str], completed
     for i in range(completed_count):
         session.crates[i].status = "completed"
         session.crates[i].passed = True
-    session.completed_crates = completed_count
     session.status = "interrupted"
     session.profile_identifiers = ["ro-crate-1.1"]
     session.save()
@@ -1595,7 +1598,7 @@ def test_interrupted_session_is_resumable_via_sessions_resume(cli_runner: CliRun
     assert result.exit_code == 0, result.output
     data = json.loads(session_file.read_text())
     assert data["session"]["status"] == "completed"
-    assert data["session"]["completed_crates"] == 2
+    assert data["session"]["passed_crates"] == 2
     # The permanent session survives its own completion.
     assert session_file.exists()
 
@@ -1680,7 +1683,13 @@ def test_decide_fresh_interactive_prompt(tmp_path, monkeypatch):
 
 
 def _write_fake_session(sessions_dir, session_id, *, status, total, completed, failed, paths):
-    """Create a minimal batch session file under ``sessions_dir`` for tests."""
+    """
+    Create a minimal batch session file under ``sessions_dir`` for tests.
+
+    ``completed``/``failed`` are the processed and the non-conformant crates;
+    the header counters are derived from them so the fixture stays consistent
+    with what the validator writes.
+    """
     sessions_dir.mkdir(parents=True, exist_ok=True)
     now = "2026-06-22T10:00:00+00:00"
     data = {
@@ -1691,8 +1700,10 @@ def _write_fake_session(sessions_dir, session_id, *, status, total, completed, f
             "updated_at": now,
             "status": status,
             "total_crates": total,
-            "completed_crates": completed,
-            "failed_crates": failed,
+            "passed_crates": completed - failed,
+            "invalid_crates": failed,
+            "errored_crates": 0,
+            "pending_crates": total - completed,
         },
         "validation_settings": {},
         "batch_options": {"profile_identifiers": ["ro-crate-1.1"], "no_auto_profile": False},
@@ -2065,8 +2076,10 @@ def _write_session_with_failures(sessions_dir, name: str = "s1") -> None:
             "updated_at": now,
             "status": "completed",
             "total_crates": 4,
-            "completed_crates": 4,
-            "failed_crates": 2,
+            "passed_crates": 2,
+            "invalid_crates": 2,
+            "errored_crates": 0,
+            "pending_crates": 0,
         },
         "validation_settings": {},
         "batch_options": {"profile_identifiers": ["ro-crate-1.1"], "no_auto_profile": False},
@@ -2250,7 +2263,7 @@ def _write_single_crate_session(sessions_dir, name: str = "s1", outcome: str = "
         ]
         crate["statistics"] = {"total_checks": 5, "total_passed_checks": 4, "total_failed_checks": 1}
     elif outcome == "error":
-        crate.update(status="failed", passed=False, error="Not a valid RO-Crate", statistics=None)
+        crate.update(status="errored", passed=False, error="Not a valid RO-Crate", statistics=None)
     data = {
         "session": {
             "version": "1.0",
@@ -2260,8 +2273,10 @@ def _write_single_crate_session(sessions_dir, name: str = "s1", outcome: str = "
             "status": "completed",
             "mode": "single",
             "total_crates": 1,
-            "completed_crates": 1,
-            "failed_crates": 0 if outcome == "passed" else 1,
+            "passed_crates": 1 if outcome == "passed" else 0,
+            "invalid_crates": 1 if outcome == "failed" else 0,
+            "errored_crates": 1 if outcome == "error" else 0,
+            "pending_crates": 0,
         },
         "validation_settings": {},
         "batch_options": {"profile_identifiers": ["ro-crate-1.1"], "no_auto_profile": False},
@@ -2523,7 +2538,6 @@ def _make_interrupted_session(sessions_dir, session_id, crate_paths, completed_c
     for i in range(completed_count):
         session.crates[i].status = "completed"
         session.crates[i].passed = True
-    session.completed_crates = completed_count
     session.status = "interrupted"
     session.profile_identifiers = [profile]
     session.save()
@@ -2563,7 +2577,7 @@ def test_sessions_resume_completes_interrupted(cli_runner: CliRunner, isolated_s
 
     data = json.loads(session_file.read_text())
     assert data["session"]["status"] == "completed"
-    assert data["session"]["completed_crates"] == 2
+    assert data["session"]["passed_crates"] == 2
 
 
 def test_sessions_restart_requires_id_non_interactive(cli_runner: CliRunner, isolated_sessions_dir):
@@ -2596,8 +2610,8 @@ def test_sessions_restart_revalidates_completed_session(cli_runner: CliRunner, i
 
     data = json.loads(session_file.read_text())
     assert data["session"]["status"] == "completed"
-    assert data["session"]["completed_crates"] == 2
-    assert data["session"]["failed_crates"] == 0
+    assert data["session"]["passed_crates"] == 2
+    assert data["session"]["invalid_crates"] == 0
     # the placeholder statistics written by the fake session have been replaced
     # by the real ones (a real run counts far more than one check per crate)
     for crate in data["crates"]:
