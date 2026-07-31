@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import time
 from dataclasses import dataclass, fields
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,6 +31,7 @@ from rocrate_validator import __version__
 from rocrate_validator.models.cache import ValidationCache
 from rocrate_validator.models.outcome import PROCESSED_STATUSES, crate_counts
 from rocrate_validator.models.result import CustomEncoder, ValidationResult
+from rocrate_validator.utils.throttle import SaveThrottle
 
 
 @dataclass
@@ -112,6 +114,7 @@ class ValidationSession:
         # In-memory cache of parsed graphs, owned by the session for the
         # duration of the run and deliberately excluded from serialization.
         self._cache: ValidationCache | None = None
+        self._save_throttle: SaveThrottle | None = None
 
     @classmethod
     def open(cls, path: str | Path | None = None, settings: dict | None = None) -> ValidationSession:
@@ -347,6 +350,34 @@ class ValidationSession:
         """True when every crate has an outcome, errors included."""
         return self.pending_crates == 0
 
+    @property
+    def save_throttle(self) -> SaveThrottle:
+        """How far apart the progress saves of this session are spaced."""
+        # `load()` builds instances via ``__new__``, so the attribute may not exist
+        throttle = getattr(self, "_save_throttle", None)
+        if throttle is None:
+            throttle = SaveThrottle()
+            self._save_throttle = throttle
+        return throttle
+
+    def save_if_due(self) -> bool:
+        """
+        Save the session unless it was saved too recently, and report whether it was.
+
+        This is how a run records its progress: every save rewrites the whole
+        session, so saving after each entry costs a growing share of the run
+        (see :class:`SaveThrottle`). What a skipped save can cost is the
+        freshness of the file, never its integrity — hence ``sync=False``, and
+        hence the run saving unconditionally when it ends.
+        """
+        throttle = self.save_throttle
+        if not throttle.due():
+            return False
+        started = time.perf_counter()
+        self.save(sync=False)
+        throttle.record(time.perf_counter() - started)
+        return True
+
     def save(self, path: Path | None = None, *, sync: bool = True):
         """
         Serialize the session to a JSON file, atomically.
@@ -449,6 +480,7 @@ class ValidationSession:
         instance.session_path = path
         instance.crates = [BatchCrateEntry.from_dict(c) for c in data.get("crates", [])]
         instance._cache = None
+        instance._save_throttle = None
         return instance
 
     def _find_entry(self, crate_path: str) -> BatchCrateEntry | None:

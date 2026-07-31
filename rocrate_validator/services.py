@@ -676,17 +676,12 @@ def session_validate(
         no_auto_profile=no_auto_profile,
         cache=session.cache,
     )
-    # keep the persisted history crash-safe: one save per validated crate.
-    # Unsynced: in a loop over many crates each save is superseded by the next
-    # one, and the session is synced when it is closed (see ValidationSession.save).
-    session.save(sync=False)
+    # Keep the persisted history recoverable as the session grows. Throttled
+    # like a batch run, and for the same reason: a script validating hundreds of
+    # crates through this call would otherwise rewrite the whole session after
+    # each one. Closing the session saves it unconditionally.
+    session.save_if_due()
     return outcome
-
-
-# Minimum interval between incremental session saves during a batch run. The
-# session is always saved once more at the end, so this only throttles the
-# intermediate (crash/interrupt-recovery) saves.
-_SESSION_SAVE_INTERVAL_SECONDS = 2.0
 
 
 def _discard_completed_run_state(session: BatchSession, state_path: Path | None, ephemeral: bool) -> None:
@@ -810,7 +805,6 @@ def batch_validate(
     signal.signal(signal.SIGINT, _sigint_handler)
 
     try:
-        last_save = time.time()
         # One cache for the whole batch: profiles/shapes parsed for one crate
         # are reused by every other crate resolving to the same key. The
         # session owns it, unless the caller shares an external one.
@@ -835,14 +829,9 @@ def batch_validate(
             if keep_results and outcome is not None:
                 results.extend(outcome)
             # Save the session incrementally for crash/interrupt recovery, but
-            # throttle it: re-serialising the whole (possibly large) session
-            # after every crate is O(n^2) and dominates the run for big batches.
-            now = time.time()
-            if now - last_save >= _SESSION_SAVE_INTERVAL_SECONDS:
-                # progress saves are left unsynced: each is superseded by the
-                # next within seconds, and the final save below syncs for good
-                session.save(sync=False)
-                last_save = now
+            # throttle it: re-serialising the whole session after every crate is
+            # O(n^2) and dominates the run for big batches.
+            session.save_if_due()
             if interrupted:
                 break
     except KeyboardInterrupt:

@@ -17,12 +17,14 @@
 import json
 import os
 import signal
+import time
 from pathlib import Path
 
 import pytest
 
 from rocrate_validator import services
 from rocrate_validator.models import ValidationSession, ValidationSettings
+from rocrate_validator.utils.throttle import SaveThrottle
 
 CRATES_PATH = Path(__file__).resolve().parent.parent / "data" / "crates"
 CRATES = [str(CRATES_PATH / "valid" / "workflow-roc"), str(CRATES_PATH / "valid" / "sort-and-change-case")]
@@ -115,6 +117,36 @@ def test_second_sigint_abandons_the_crate_in_flight(tmp_path, monkeypatch):
     data = json.loads(state_path.read_text())
     assert data["session"]["status"] == "interrupted"
     assert {c["status"] for c in data["crates"]} == {"pending"}
+
+
+def test_save_interval_grows_with_the_cost_of_saving():
+    """The throttle spaces saves by what they cost, so the overhead stays bounded."""
+    throttle = SaveThrottle(budget=0.02, minimum=2.0)
+
+    assert throttle.due() is True, "the first entry must be persisted straight away"
+
+    throttle.record(cost=0.001)
+    assert throttle.interval == 2.0, "a cheap save must not push the interval below the floor"
+    assert throttle.due() is False, "a save made moments ago is not due again"
+
+    throttle.record(cost=1.5)  # the session has grown big enough to be slow to write
+    assert throttle.interval == pytest.approx(75.0), "a 1.5 s save buys 75 s of silence at a 2% budget"
+
+
+def test_save_if_due_skips_the_save_it_is_not_due_for(tmp_path):
+    session = ValidationSession(validation_settings={}, crate_paths=[], session_path=tmp_path / "s.json")
+
+    assert session.save_if_due() is True
+    first = session.session_path.read_text()
+
+    time.sleep(0.01)
+    assert session.save_if_due() is False, "the throttle must hold off the second save"
+    assert session.session_path.read_text() == first, "a skipped save must not touch the file"
+
+    session.save_throttle.record(cost=0.0)  # spend the interval without waiting it out
+    session.save_throttle._last_save -= session.save_throttle.interval
+    assert session.save_if_due() is True
+    assert session.session_path.read_text() != first, "the session must be rewritten once due again"
 
 
 def test_completed_ephemeral_run_state_is_still_removed(tmp_path, monkeypatch):
