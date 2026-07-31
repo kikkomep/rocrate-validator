@@ -15,6 +15,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from dataclasses import dataclass, fields
 from datetime import datetime, timezone
 from pathlib import Path
@@ -345,24 +347,61 @@ class ValidationSession:
         """True when every crate has an outcome, errors included."""
         return self.pending_crates == 0
 
-    def save(self, path: Path | None = None):
+    def save(self, path: Path | None = None, *, sync: bool = True):
         """
-        Serialize the session to a JSON file.
+        Serialize the session to a JSON file, atomically.
+
+        The session is written to a temporary file in the same directory and
+        then renamed over the target: a save killed halfway — the OOM scenario
+        this format is most exposed to, since the whole session is rewritten on
+        every save — leaves the previous file intact instead of truncating the
+        only record of the run.
 
         The file is written compactly: it is machine state rewritten on every
         save, not something meant to be read by hand, and the indentation
         doubles both its size and the time each save takes.
+
+        :param sync: flush the data to the storage device before renaming.
+            Only a power failure or a kernel crash needs it: a killed process
+            cannot lose what the page cache already holds, so the rename above
+            is what protects the session from a crash, not this.
+
+            The rule is to sync **the saves that close something** — the first
+            one, which is what makes the run resumable at all, the last one,
+            and the one an interrupt writes — and not the ones that merely
+            record progress, which are superseded within seconds anyway.
+            Syncing those would push every intermediate version of the file all
+            the way to the device (hundreds of gigabytes over a long batch, for
+            a few dozen megabytes of state that matter), whereas leaving them
+            unsynced lets the kernel drop the versions it never got round to
+            writing. What is at stake there is a couple of seconds of progress
+            on a resumable, recomputable run.
         """
-        save_path = path or self.session_path
-        if save_path is None:
+        target = path or self.session_path
+        if target is None:
             return
+        save_path = Path(target)
         self.updated_at = datetime.now(timezone.utc)
         if self.is_completed():
             self.status = "completed"
         data = self.to_dict()
         save_path.parent.mkdir(parents=True, exist_ok=True)
-        with Path(save_path).open("w", encoding="utf-8") as f:
-            json.dump(data, f, cls=CustomEncoder)
+        # the temporary file must sit in the target directory: the replace below
+        # is atomic only within a filesystem, and it (unlike a plain rename)
+        # overwrites an existing target on every platform
+        fd, tmp_name = tempfile.mkstemp(dir=save_path.parent, prefix=f"{save_path.stem}-", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(data, f, cls=CustomEncoder)
+                if sync:
+                    f.flush()
+                    os.fsync(f.fileno())
+            Path(tmp_name).replace(save_path)
+        except BaseException:
+            # BaseException, not Exception: a KeyboardInterrupt in the middle of
+            # a save must not leave the temporary file behind either
+            Path(tmp_name).unlink(missing_ok=True)
+            raise
 
     def to_dict(self) -> dict:
         return {

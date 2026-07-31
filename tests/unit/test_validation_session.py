@@ -17,7 +17,10 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from rocrate_validator.models import BatchSession, ValidationSession
+from rocrate_validator.models import batch as batch_module
 
 CRATES_PATH = Path(__file__).resolve().parent.parent / "data" / "crates"
 CRATE = str(CRATES_PATH / "valid" / "workflow-roc")
@@ -127,3 +130,48 @@ def test_session_level_profile_defaults(tmp_path):
     entry = session._find_entry(CRATE)
     assert entry is not None
     assert entry.profiles == ["ro-crate-1.1"]
+
+
+def _saved_session(path: Path) -> ValidationSession:
+    """A session already persisted once, so a further save overwrites a valid file."""
+    session = ValidationSession(validation_settings=BASE_SETTINGS, crate_paths=[CRATE], session_path=path)
+    session.save()
+    return session
+
+
+def test_save_leaves_the_previous_file_intact_when_serialisation_fails(tmp_path, monkeypatch):
+    session_file = tmp_path / "s.json"
+    session = _saved_session(session_file)
+    intact = session_file.read_text()
+
+    def exploding_dump(*_args, **_kwargs):
+        raise RuntimeError("serialisation blew up halfway")
+
+    monkeypatch.setattr(batch_module.json, "dump", exploding_dump)
+    with pytest.raises(RuntimeError):
+        session.save()
+
+    assert session_file.read_text() == intact, "a failed save must not touch the previous session"
+    assert not list(tmp_path.glob("*.tmp")), "the temporary file must not be left behind"
+
+
+def test_save_is_never_observed_partial(tmp_path, monkeypatch):
+    session_file = tmp_path / "s.json"
+    session = _saved_session(session_file)
+    previous = json.loads(session_file.read_text())
+
+    real_dump = batch_module.json.dump
+    observed = []
+
+    def observing_dump(data, fp, **kwargs):
+        real_dump(data, fp, **kwargs)
+        fp.flush()
+        # mid-write, the target must still hold the whole previous session
+        observed.append(json.loads(session_file.read_text()))
+
+    monkeypatch.setattr(batch_module.json, "dump", observing_dump)
+    session.save()
+
+    assert observed == [previous], "the target went through an intermediate state"
+    assert json.loads(session_file.read_text()) != previous, "the new session was not published"
+    assert not list(tmp_path.glob("*.tmp")), "the temporary file must not be left behind"

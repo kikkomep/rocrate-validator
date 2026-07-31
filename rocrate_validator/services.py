@@ -675,8 +675,10 @@ def session_validate(
         no_auto_profile=no_auto_profile,
         cache=session.cache,
     )
-    # keep the persisted history crash-safe: one save per validated crate
-    session.save()
+    # keep the persisted history crash-safe: one save per validated crate.
+    # Unsynced: in a loop over many crates each save is superseded by the next
+    # one, and the session is synced when it is closed (see ValidationSession.save).
+    session.save(sync=False)
     return outcome
 
 
@@ -794,7 +796,9 @@ def batch_validate(
             # after every crate is O(n^2) and dominates the run for big batches.
             now = time.time()
             if now - last_save >= _SESSION_SAVE_INTERVAL_SECONDS:
-                session.save()
+                # progress saves are left unsynced: each is superseded by the
+                # next within seconds, and the final save below syncs for good
+                session.save(sync=False)
                 last_save = now
     finally:
         signal.signal(signal.SIGINT, original_handler)
