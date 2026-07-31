@@ -13,6 +13,7 @@
 # limitations under the License.
 
 
+import contextlib
 import shutil
 import signal
 import sys
@@ -688,6 +689,18 @@ def session_validate(
 _SESSION_SAVE_INTERVAL_SECONDS = 2.0
 
 
+def _save_final_state(session: BatchSession, progress_callback: Callable | None, total: int) -> None:
+    """Record the definitive state of a batch run, whatever brought it to an end."""
+    if progress_callback:
+        # announcing the save is cosmetic — writing a large session takes a
+        # moment and the UI should show it — so it must never mask the
+        # exception that may be unwinding through here
+        with contextlib.suppress(Exception):
+            progress_callback("", total, total, "saving", None)
+    session.status = "completed" if session.is_completed() else "interrupted"
+    session.save()
+
+
 def batch_validate(
     settings: ValidationSettings,
     rocrate_uris: list[str],
@@ -747,6 +760,11 @@ def batch_validate(
     session.no_auto_profile = no_auto_profile
     session.requirement_severity_only = bool(getattr(settings, "requirement_severity_only", False))
     results: list[tuple[str, ValidationResult]] = []
+    total = len(rocrate_uris)
+    # Write the session before validating anything: until the first save the run
+    # leaves no trace on disk, so a process that dies early — or during a first
+    # crate slow enough to outlast the save throttle — leaves nothing to resume.
+    session.save()
 
     # Register SIGINT handler for graceful interruption. The state file is
     # saved (never deleted) so the run stays resumable.
@@ -766,7 +784,6 @@ def batch_validate(
     signal.signal(signal.SIGINT, _sigint_handler)
 
     try:
-        total = len(rocrate_uris)
         last_save = time.time()
         # One cache for the whole batch: profiles/shapes parsed for one crate
         # are reused by every other crate resolving to the same key. The
@@ -802,13 +819,10 @@ def batch_validate(
                 last_save = now
     finally:
         signal.signal(signal.SIGINT, original_handler)
-
-    # Final save (always). Announce it first so the UI can show activity, since
-    # writing a large session to disk may take a moment.
-    if progress_callback:
-        progress_callback("", total, total, "saving", None)
-    session.status = "completed" if session.is_completed() else "interrupted"
-    session.save()
+        # The final save belongs here: an exception escaping the loop must not
+        # cost the crates already validated, which is precisely when the saved
+        # state is worth the most.
+        _save_final_state(session, progress_callback, total)
 
     # An ephemeral run-state only exists to make interrupted runs resumable:
     # once the batch completes it is deleted; when the run did not finish
