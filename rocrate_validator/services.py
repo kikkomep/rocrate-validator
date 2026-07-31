@@ -689,6 +689,22 @@ def session_validate(
 _SESSION_SAVE_INTERVAL_SECONDS = 2.0
 
 
+def _discard_completed_run_state(session: BatchSession, state_path: Path | None, ephemeral: bool) -> None:
+    """
+    Remove the run-state of a completed run.
+
+    An ephemeral run-state only exists to make interrupted runs resumable: once
+    the batch completes it is deleted; when the run did not finish (e.g. a crate
+    raised and stayed pending) it persists for ``--resume``.
+    """
+    if not (ephemeral and state_path is not None and session.is_completed()):
+        return
+    try:
+        Path(state_path).unlink(missing_ok=True)
+    except OSError as e:
+        logger.debug("Could not remove completed run-state %s: %s", state_path, e)
+
+
 def _save_final_state(session: BatchSession, progress_callback: Callable | None, total: int) -> None:
     """Record the definitive state of a batch run, whatever brought it to an end."""
     if progress_callback:
@@ -774,11 +790,21 @@ def batch_validate(
         else "Resume it with `rocrate-validator sessions resume`."
     )
 
+    interrupted = False
+
     def _sigint_handler(_signum, _frame):
-        session.status = "interrupted"
-        session.save()
-        print(f"\n⚠  Batch interrupted. {resume_hint}", file=sys.stderr)
-        sys.exit(130)
+        # The handler runs at an arbitrary point of the run, so it does no I/O
+        # and does not exit: it raises a flag the loop reads between two crates,
+        # where the session is in a consistent state. Saving or exiting from
+        # here could land in the middle of a save, or leave the crate being
+        # validated recorded as neither done nor pending.
+        nonlocal interrupted
+        if interrupted:
+            # asked twice: the crate in flight is not worth waiting for. What
+            # was already validated is still written out by the finally below.
+            raise KeyboardInterrupt
+        interrupted = True
+        print("\n⚠  Interrupting after the current crate… (Ctrl-C again to stop right away)", file=sys.stderr)
 
     original_handler = signal.getsignal(signal.SIGINT)
     signal.signal(signal.SIGINT, _sigint_handler)
@@ -817,6 +843,12 @@ def batch_validate(
                 # next within seconds, and the final save below syncs for good
                 session.save(sync=False)
                 last_save = now
+            if interrupted:
+                break
+    except KeyboardInterrupt:
+        # the second Ctrl-C, raised by the handler: the crate in flight is
+        # abandoned and stays pending, everything before it is kept
+        interrupted = True
     finally:
         signal.signal(signal.SIGINT, original_handler)
         # The final save belongs here: an exception escaping the loop must not
@@ -824,15 +856,11 @@ def batch_validate(
         # state is worth the most.
         _save_final_state(session, progress_callback, total)
 
-    # An ephemeral run-state only exists to make interrupted runs resumable:
-    # once the batch completes it is deleted; when the run did not finish
-    # (e.g. a crate raised and stayed pending) it persists for --resume.
-    if ephemeral and state_path is not None and session.is_completed():
-        try:
-            Path(state_path).unlink(missing_ok=True)
-        except OSError as e:
-            logger.debug("Could not remove completed run-state %s: %s", state_path, e)
+    if interrupted:
+        print(f"\n⚠  Batch interrupted. {resume_hint}", file=sys.stderr)
+        sys.exit(130)
 
+    _discard_completed_run_state(session, state_path, ephemeral)
     return BatchValidationResult(session, results)
 
 
