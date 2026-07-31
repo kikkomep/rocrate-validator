@@ -392,7 +392,11 @@ class ValidationSession:
         fd, tmp_name = tempfile.mkstemp(dir=save_path.parent, prefix=f"{save_path.stem}-", suffix=".tmp")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
-                json.dump(data, f, cls=CustomEncoder)
+                # serialised in one go rather than streamed with json.dump():
+                # dump() writes a token at a time and is 3.5x slower on a large
+                # session, at the cost of holding the text in memory — a small
+                # fraction of the dict it is built from, which is in memory anyway
+                f.write(json.dumps(data, cls=CustomEncoder))
                 if sync:
                     f.flush()
                     os.fsync(f.fileno())

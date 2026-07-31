@@ -144,10 +144,10 @@ def test_save_leaves_the_previous_file_intact_when_serialisation_fails(tmp_path,
     session = _saved_session(session_file)
     intact = session_file.read_text()
 
-    def exploding_dump(*_args, **_kwargs):
+    def exploding_dumps(*_args, **_kwargs):
         raise RuntimeError("serialisation blew up halfway")
 
-    monkeypatch.setattr(batch_module.json, "dump", exploding_dump)
+    monkeypatch.setattr(batch_module.json, "dumps", exploding_dumps)
     with pytest.raises(RuntimeError):
         session.save()
 
@@ -160,18 +160,21 @@ def test_save_is_never_observed_partial(tmp_path, monkeypatch):
     session = _saved_session(session_file)
     previous = json.loads(session_file.read_text())
 
-    real_dump = batch_module.json.dump
+    real_replace = Path.replace
     observed = []
 
-    def observing_dump(data, fp, **kwargs):
-        real_dump(data, fp, **kwargs)
-        fp.flush()
-        # mid-write, the target must still hold the whole previous session
-        observed.append(json.loads(session_file.read_text()))
+    def observing_replace(self, target):
+        # the instant before publication: the new session is written whole to
+        # the temporary file, and the target must still hold the previous one
+        observed.append((json.loads(self.read_text()), json.loads(Path(target).read_text())))
+        return real_replace(self, target)
 
-    monkeypatch.setattr(batch_module.json, "dump", observing_dump)
+    monkeypatch.setattr(Path, "replace", observing_replace)
     session.save()
 
-    assert observed == [previous], "the target went through an intermediate state"
-    assert json.loads(session_file.read_text()) != previous, "the new session was not published"
+    assert len(observed) == 1
+    staged, published = observed[0]
+    assert published == previous, "the target went through an intermediate state"
+    assert staged != previous, "the staged file is not the new session"
+    assert json.loads(session_file.read_text()) == staged, "the staged session was not published"
     assert not list(tmp_path.glob("*.tmp")), "the temporary file must not be left behind"
