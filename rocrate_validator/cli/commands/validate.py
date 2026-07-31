@@ -34,10 +34,12 @@ from rocrate_validator.cli.commands.errors import handle_error
 from rocrate_validator.cli.main import cli
 from rocrate_validator.cli.ui.text.validate import (
     BatchValidationCommandView,
+    FooterRow,
     ValidationCommandView,
     format_profile_selection,
     render_batch_footer,
     render_batch_header,
+    render_details_block,
 )
 from rocrate_validator.errors import ROCrateInvalidURIError
 from rocrate_validator.models import (
@@ -1027,7 +1029,6 @@ def _run_batch_validation(
             verbose=verbose,
             json_schema=json_schema,
             split_per_crate=split_per_crate,
-            console=console,
         )
     _report_batch_status(
         console,
@@ -1264,7 +1265,6 @@ def _report_empty_batch(
         verbose=verbose,
         json_schema=json_schema,
         split_per_crate=split_per_crate,
-        console=console,
     )
 
 
@@ -1376,13 +1376,18 @@ def _write_single_report(
             write_report_csv(sys.stdout, crate_dicts)
         return
     if split_per_crate and session is not None:
-        _write_split_reports(
+        manifest = _write_split_reports(
             session,
-            console=console,
             schema=json_schema,
             passed=is_valid,
             verbose=verbose,
             output_dir=output_dir,
+        )
+        _announce_split_destination(
+            console,
+            directory=manifest.parent,
+            output_format=output_format,
+            crates=len(session.crates),
         )
         return
     _emit_json_report(
@@ -1398,17 +1403,41 @@ def _write_single_report(
     )
 
 
+def _split_reports_row(directory: Path, output_format: str, crates: int) -> FooterRow:
+    """The details-block row of a split run: the destination, then what is in it."""
+    return FooterRow(
+        "📄",
+        f"Reports ({output_format})",
+        str(directory),
+        "bold cyan",
+        f"{crates} crate report{'' if crates == 1 else 's'} + index.json",
+    )
+
+
+def _announce_split_destination(console: Console, *, directory: Path, output_format: str, crates: int) -> None:
+    """
+    Say where a split run wrote its files, in the layout the batch footer uses.
+
+    Only the single-crate path needs this: a batch ends with the footer, which
+    carries the very same row. It goes to stderr, so it never mixes with a
+    report written to stdout.
+    """
+    stderr_console = Console(file=sys.stderr, no_color=console.no_color, width=console.width)
+    stderr_console.print()
+    render_details_block(stderr_console, [_split_reports_row(directory, output_format, crates)])
+    stderr_console.print()
+
+
 def _write_split_reports(
     session: ValidationSession,
     *,
-    console: Console,
     schema: str,
     passed: bool,
     verbose: bool,
     output_dir: Path | None,
 ) -> Path:
     """
-    Write one report per crate plus the manifest, and report where they went.
+    Write one report per crate plus the manifest.
 
     :returns: the path of the manifest, the entry point of the whole set
     """
@@ -1423,10 +1452,9 @@ def _write_split_reports(
     for name, document in documents.items():
         with (directory / name).open("w", encoding="utf-8") as f:
             dump_json(document, f)
-    # On stderr, so it never mixes with a report written to stdout.
-    Console(file=sys.stderr, no_color=console.no_color, width=console.width).print(
-        f"[bold]Wrote {len(documents) - 1} report(s)[/bold] to [cyan]{directory}{os.sep}[/cyan]"
-    )
+    # Where the files went is not announced here: it belongs to the details
+    # block printed at the end of the run, next to the destination of every
+    # other output, instead of interrupting the per-crate results.
     return directory / index_name
 
 
@@ -1441,7 +1469,6 @@ def _write_batch_report(
     verbose: bool,
     json_schema: str = "v2",
     split_per_crate: bool = False,
-    console: Console | None = None,
 ) -> Path | None:
     """
     Write the batch result as JSON, CSV or a text summary, to a file or the console.
@@ -1460,7 +1487,6 @@ def _write_batch_report(
         if split_per_crate:
             return _write_split_reports(
                 batch_result.session,
-                console=console or batch_view.console,
                 schema=json_schema,
                 passed=batch_result.passed(),
                 verbose=verbose,
@@ -1561,17 +1587,17 @@ def _report_batch_status(
     """
     stderr_console = Console(file=sys.stderr, no_color=console.no_color, width=console.width)
 
-    rows: list[tuple[str, str, str, str]] = []  # (icon, label, path, path-style)
+    rows: list[FooterRow] = []
     if output_file:
         if split_per_crate:
-            rows.append(("📄", f"Reports ({output_format})", str(output_file.parent), "bold cyan"))
+            rows.append(_split_reports_row(output_file.parent, output_format, batch_result.total_crates()))
         else:
-            rows.append(("📄", f"Report ({output_format})", str(output_file), "bold cyan"))
+            rows.append(FooterRow("📄", f"Report ({output_format})", str(output_file), "bold cyan"))
     # The state file is only useful here if the run did not finish (so it can
     # be resumed); when completed a run-state no longer exists and a session
     # is redundant with the header shown at the start.
     if state_path and not batch_result.session.is_completed():
-        rows.append(("💾", "Run state" if ephemeral else "Session", str(state_path), "cyan"))
+        rows.append(FooterRow("💾", "Run state" if ephemeral else "Session", str(state_path), "cyan"))
     render_batch_footer(stderr_console, batch_result, rows)
 
 

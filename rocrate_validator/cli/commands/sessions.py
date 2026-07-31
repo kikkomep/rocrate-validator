@@ -36,6 +36,7 @@ from rocrate_validator.cli.commands.errors import handle_error
 from rocrate_validator.cli.main import cli, click
 from rocrate_validator.cli.ui.text.validate import (
     BatchValidationCommandView,
+    FooterRow,
     format_profile_selection,
     render_batch_footer,
     render_batch_header,
@@ -910,9 +911,9 @@ def _run_stored_session(console, session_file: Path, *, fresh: bool, verbose: bo
 
     # Aligned footer, consistent with `validate`: the session is only repeated
     # here when the run did not finish (the input is shown in the header above).
-    rows: list[tuple[str, str, str, str]] = []
+    rows: list[FooterRow] = []
     if not result.session.is_completed():
-        rows.append(("💾", "Session", str(session_file), "cyan"))
+        rows.append(FooterRow("💾", "Session", str(session_file), "cyan"))
     render_batch_footer(console, result, rows)
     return result
 

@@ -17,8 +17,9 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
+from rich.cells import cell_len
 from rich.console import Group
 from rich.padding import Padding
 from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
@@ -162,19 +163,54 @@ def render_batch_header(
     console.print()
 
 
+class FooterRow(NamedTuple):
+    """
+    One line of the "where things went" block: an icon, a bold label, a path.
+
+    ``note`` is an optional second line hanging under the path (same column),
+    for what qualifies the destination rather than naming it — how many files
+    were written there, say.
+    """
+
+    icon: str
+    label: str
+    path: str
+    path_style: str
+    note: str = ""
+
+
+def render_details_block(console: Console, rows: list[FooterRow], *, indent: str = "  ") -> None:
+    """
+    Render the aligned ``icon · label · path`` block that tells where the output
+    of a run was written.
+
+    Labels are padded to a common width, and a row's ``note`` is printed under
+    its path, in the same column. Shared by the batch footer and by the paths
+    that have no verdict to print (a single crate written in split mode), so
+    "where are my files" always looks the same.
+    """
+    if not rows:
+        return
+    label_width = max(len(row.label) for row in rows)
+    for row in rows:
+        label = f"[bold]{row.label:<{label_width}}[/bold]"
+        console.print(f"{indent}{row.icon} {label}  [{row.path_style}]{row.path}[/{row.path_style}]")
+        if row.note:
+            # Align the note under the path: the icon is not always one cell wide.
+            console.print(f"{indent}{' ' * (cell_len(row.icon) + 1 + label_width + 2)}[dim]{row.note}[/dim]")
+
+
 def render_batch_footer(
     console: Console,
     batch_result: BatchValidationResult,
-    rows: list[tuple[str, str, str, str]],
+    rows: list[FooterRow],
 ) -> None:
     """
     Render the final batch verdict followed by an aligned details block.
 
     Shared by the ``validate`` and ``sessions resume`` commands so their output
-    stays consistent. ``rows`` is a list of ``(icon, label, path, path_style)``
-    tuples; labels are padded to a common width. The whole block is indented by
-    two spaces so the icons line up with the per-crate ``✓``/``✗`` marks printed
-    above it.
+    stays consistent. The whole block is indented by two spaces so the icons
+    line up with the per-crate ``✓``/``✗`` marks printed above it.
     """
     indent = "  "
     if batch_result.passed():
@@ -187,10 +223,8 @@ def render_batch_footer(
             f"out of {batch_result.total_crates()} RO-Crate(s) failed validation.[/bold][/red]"
         )
     if rows:
-        label_width = max(len(label) for _, label, _, _ in rows)
         console.print()  # blank line separating the verdict from the details block
-        for icon, label, path, path_style in rows:
-            console.print(f"{indent}{icon} [bold]{label:<{label_width}}[/bold]  [{path_style}]{path}[/{path_style}]")
+        render_details_block(console, rows, indent=indent)
     console.print()  # trailing blank line to separate the output from the next prompt
 
 
