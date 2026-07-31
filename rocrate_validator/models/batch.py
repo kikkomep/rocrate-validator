@@ -346,7 +346,13 @@ class ValidationSession:
         return self.pending_crates == 0
 
     def save(self, path: Path | None = None):
-        """Serialize the session to a JSON file."""
+        """
+        Serialize the session to a JSON file.
+
+        The file is written compactly: it is machine state rewritten on every
+        save, not something meant to be read by hand, and the indentation
+        doubles both its size and the time each save takes.
+        """
         save_path = path or self.session_path
         if save_path is None:
             return
@@ -356,7 +362,7 @@ class ValidationSession:
         data = self.to_dict()
         save_path.parent.mkdir(parents=True, exist_ok=True)
         with Path(save_path).open("w", encoding="utf-8") as f:
-            json.dump(data, f, indent=4, cls=CustomEncoder)
+            json.dump(data, f, cls=CustomEncoder)
 
     def to_dict(self) -> dict:
         return {
