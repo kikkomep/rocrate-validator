@@ -124,7 +124,22 @@ def crate_v2_doc(
     verbose: bool = False,
 ) -> dict[str, Any]:
     """One crate as a standalone v2 report — the same envelope, ``crates`` of one."""
-    return build_report(session, passed=bool(entry.passed), verbose=verbose, crates=[entry])
+    return build_report(
+        session,
+        passed=bool(entry.passed),
+        verbose=verbose,
+        crates=[entry],
+        # The whole session's status would be wrong here: a crate that validated
+        # cleanly must not be reported as "interrupted" because *another* crate
+        # left the run unfinished. Every other field of the block already
+        # describes this crate alone; the run's own status is in the manifest.
+        status=_entry_session_status(entry),
+    )
+
+
+def _entry_session_status(entry: BatchCrateEntry) -> str:
+    """The session status a one-crate report deserves: was this crate processed?"""
+    return "completed" if entry.status in ("completed", "failed") else "interrupted"
 
 
 def resolve_destination(output_dir: Path | None) -> Path:
@@ -149,6 +164,9 @@ def manifest(
     return {
         "meta": report_meta(),
         "mode": "single" if len(entries) == 1 else "batch",
+        # The status of the run itself, which an empty split run reports nowhere
+        # else: with no crates the manifest is the only document written.
+        "status": session.status,
         "schema": schema,
         "passed": passed,
         "total_crates": len(entries),

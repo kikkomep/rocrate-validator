@@ -192,6 +192,7 @@ def build_report(
     passed: bool,
     verbose: bool = False,
     crates: list[BatchCrateEntry] | None = None,
+    status: str | None = None,
 ) -> dict[str, Any]:
     """
     Build the ``v2`` report of a session.
@@ -200,6 +201,10 @@ def build_report(
         passed only once every crate completed, which the session alone cannot
         tell apart from a partial run)
     :param crates: the entries to report on; defaults to the whole session
+    :param status: overrides the session status. Every other field of the
+        ``session`` block is computed from ``crates``, so a caller reporting on
+        a *subset* must override the status too, or the document would describe
+        its subset everywhere but there. Defaults to the session's own status.
     """
     entries = session.crates if crates is None else crates
     failed = sum(1 for entry in entries if entry.status in ("completed", "failed") and not entry.passed)
@@ -207,7 +212,7 @@ def build_report(
         "meta": report_meta(),
         "session": {
             "mode": "single" if len(entries) == 1 else "batch",
-            "status": session.status,
+            "status": session.status if status is None else status,
             "total_crates": len(entries),
             "completed_crates": sum(1 for entry in entries if entry.status == "completed"),
             "failed_crates": failed,

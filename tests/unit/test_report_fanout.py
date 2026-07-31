@@ -16,12 +16,14 @@
 
 from pathlib import Path
 
-from rocrate_validator.models import BatchCrateEntry
+from rocrate_validator.models import BatchCrateEntry, ValidationSession
 from rocrate_validator.utils.io_helpers.output.json.fanout import (
     DEFAULT_REPORT_DIR,
     crate_ids,
     crate_legacy_doc,
+    crate_v2_doc,
     resolve_destination,
+    split_documents,
 )
 
 
@@ -82,3 +84,48 @@ def test_crate_legacy_doc_is_self_contained():
     # The batch settings describe no single crate: the URI is filled in per crate.
     assert document["validation_settings"]["rocrate_uri"] == "/data/crateA"
     assert document["validation_settings"]["profile_identifiers"] == ["ro-crate-1.1"]
+
+
+def _interrupted_session() -> ValidationSession:
+    """A run stopped halfway: one crate validated, one never reached."""
+    session = ValidationSession(validation_settings={}, crate_paths=["/data/done", "/data/never"])
+    session.crates[0].status = "completed"
+    session.crates[0].passed = True
+    session.status = "interrupted"
+    return session
+
+
+def test_split_report_status_describes_its_own_crate():
+    """A crate that validated cleanly is not "interrupted" because another was not reached."""
+    session = _interrupted_session()
+    done, never = session.crates
+
+    assert crate_v2_doc(session, done)["session"]["status"] == "completed"
+    assert crate_v2_doc(session, never)["session"]["status"] == "interrupted"
+
+
+def test_split_report_status_stays_consistent_with_the_rest_of_the_block():
+    """
+    Every field of `session` in a split file is about the one crate reported.
+
+    The status must follow suit, or the block would describe its crate
+    everywhere but there.
+    """
+    session = _interrupted_session()
+    block = crate_v2_doc(session, session.crates[0])["session"]
+
+    assert block == {
+        "mode": "single",
+        "status": "completed",
+        "total_crates": 1,
+        "completed_crates": 1,
+        "failed_crates": 0,
+    }
+
+
+def test_the_manifest_keeps_the_status_of_the_run():
+    """The run's own status is not lost: it belongs to the index, not to a fragment."""
+    session = _interrupted_session()
+    _, documents, index_name = split_documents(session, schema="v2", passed=False)
+
+    assert documents[index_name]["status"] == "interrupted"
