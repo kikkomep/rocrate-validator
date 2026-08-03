@@ -230,7 +230,7 @@ def cache_reset(ctx, cache_path: Path | None = None, yes: bool = False):
                 console.print("[yellow]Use --yes to remove entries in non-interactive mode.[/yellow]")
                 exit_code = 1
             else:
-                confirm = click.confirm(f"Remove all {entries} cached entries?", default=False)
+                confirm = click.confirm(f"Remove all {entries} cached entries?", default=False, err=True)
                 if not confirm:
                     console.print("Aborted.")
                 else:

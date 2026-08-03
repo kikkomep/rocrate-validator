@@ -110,3 +110,31 @@ def test_a_report_written_to_a_file_leaves_stdout_empty(tmp_path):
     assert json.loads(output_file.read_text()), "the report must be in the file"
     assert result.stdout == "", "the report went to a file, so stdout carries no document"
     assert LOGGED_WARNING in result.stderr
+    assert str(output_file) in result.stderr, "a run that wrote a file must say where"
+
+
+BANNER = "ROCrate Validator"
+
+
+@pytest.mark.parametrize("args", [("validate", "--no-paging", str(CRATE_LOGGING_A_WARNING)), ("profiles", "list")])
+def test_the_banner_heads_a_textual_document(args: tuple[str, ...]):
+    """
+    A textual output is a human artefact and its masthead is part of it.
+
+    Which tool, and which version, produced the report belongs *inside* the
+    report — so ``validate crate > report.txt`` keeps it, exactly as the screen
+    shows it.
+    """
+    result = run_cli("-y", *args)
+
+    assert BANNER in result.stdout, "a textual document carries its own header"
+
+
+@pytest.mark.parametrize("output_format", ["json", "csv"])
+def test_a_machine_readable_document_has_no_banner(output_format: str):
+    """The masthead of a report meant for a parser is a syntax error: it is not printed at all."""
+    result = run_cli("-y", "validate", "-f", output_format, "--no-paging", str(CRATE_LOGGING_A_WARNING))
+
+    assert parse(output_format, result.stdout)
+    assert BANNER not in result.stdout
+    assert BANNER not in result.stderr, "suppressed, not moved: there is no textual document to head"

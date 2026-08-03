@@ -246,6 +246,14 @@ def sessions_show(
     default=None,
     help="Keep ANSI colour codes when writing the text format to a file",
 )
+@click.option(
+    "-w",
+    "--output-line-width",
+    type=int,
+    default=120,
+    show_default=True,
+    help="Line width of the text report when it does not go to a terminal",
+)
 @click.pass_context
 def sessions_report(
     ctx,
@@ -255,6 +263,7 @@ def sessions_report(
     output_format: str = "text",
     verbose: bool = False,
     color: bool | None = None,
+    output_line_width: int | None = None,
 ):
     """
     Generate a complete report of a stored validation session.
@@ -289,6 +298,7 @@ def sessions_report(
             output_format=output_format.lower(),
             verbose=verbose,
             color=color,
+            output_line_width=output_line_width,
         )
     except Exception as e:
         handle_error(e, console)
@@ -378,8 +388,10 @@ def _write_session_report(
     output_format: str,
     verbose: bool = False,
     color: bool | None = None,
+    output_line_width: int | None = None,
 ) -> None:
     """Write the complete report of a stored session to ``output_file`` or stdout."""
+    console.apply_report_width(output_line_width)
     session = BatchSession.load(session_file)
     crate_dicts = session.inlined_crates()
 
@@ -409,7 +421,7 @@ def _write_session_report(
             render_report_md(sys.stdout, crate_dicts, header_rows=header_rows, verbose=verbose)
     elif output_file:
         with output_file.open("w", encoding="utf-8") as f:
-            kwargs: dict = {"file": f}
+            kwargs: dict = {"file": f, "width": output_line_width}
             # Files default to plain text; --color keeps the ANSI codes.
             kwargs["color_system"] = "standard" if color else None
             _render_text_report(Console(**kwargs), session, session_file, verbose=verbose)
@@ -417,7 +429,7 @@ def _write_session_report(
         _render_text_report(console, session, session_file, verbose=verbose)
 
     if output_file:
-        console.print(f"[dim]Report written to[/dim] {output_file}")
+        console.notices.print(f"[dim]Report written to[/dim] {output_file}")
 
 
 def _report_header_rows(session: BatchSession, session_file: Path) -> list[tuple[str, str]]:
@@ -739,7 +751,7 @@ def _confirm_clear(
     if not interactive:
         console.print("[yellow]Use --yes to remove sessions in non-interactive mode.[/yellow]")
         return False, 1
-    if click.confirm("Proceed?", default=False):
+    if click.confirm("Proceed?", default=False, err=True):
         return True, 0
     console.print("Aborted.")
     return False, 0

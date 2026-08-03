@@ -498,6 +498,9 @@ def validate(  # noqa: C901, PLR0914
     [magenta]rocrate-validator:[/magenta] Validate RO-Crates against one or more profiles (single crate or batch)
     """
     console: Console = ctx.obj["console"]
+    # A textual report written to a file is sized by -w; so is one redirected
+    # out of the terminal, which is the same document by another route.
+    console.apply_report_width(output_line_width)
     pager = ctx.obj["pager"]
     interactive = ctx.obj["interactive"]
     # Get the no_paging flag
@@ -1368,6 +1371,7 @@ def _write_single_report(
         if output_file:
             with output_file.open("w", encoding="utf-8-sig", newline="") as f:
                 write_report_csv(f, crate_dicts)
+            _announce_destination(console, _report_file_row(output_file, output_format))
         else:
             write_report_csv(sys.stdout, crate_dicts)
         return
@@ -1379,11 +1383,9 @@ def _write_single_report(
             verbose=verbose,
             output_dir=output_dir,
         )
-        _announce_split_destination(
+        _announce_destination(
             console,
-            directory=manifest.parent,
-            output_format=output_format,
-            crates=len(session.crates),
+            _split_reports_row(manifest.parent, output_format, len(session.crates)),
         )
         return
     _emit_json_report(
@@ -1410,18 +1412,24 @@ def _split_reports_row(directory: Path, output_format: str, crates: int) -> Foot
     )
 
 
-def _announce_split_destination(console: Console, *, directory: Path, output_format: str, crates: int) -> None:
+def _announce_destination(console: Console, row: FooterRow) -> None:
     """
-    Say where a split run wrote its files, in the layout the batch footer uses.
+    Say where a single-crate run wrote its report, in the batch footer's layout.
 
     Only the single-crate path needs this: a batch ends with the footer, which
-    carries the very same row. It goes to stderr, so it never mixes with a
-    report written to stdout.
+    carries the very same row. It goes to stderr — the run wrote a file, so
+    there is nothing on stdout for this to get in the way of, and a user who
+    redirected stdout still gets told where their report went.
     """
     stderr_console = console.notices
     stderr_console.print()
-    render_details_block(stderr_console, [_split_reports_row(directory, output_format, crates)])
+    render_details_block(stderr_console, [row])
     stderr_console.print()
+
+
+def _report_file_row(output_file: Path, output_format: str) -> FooterRow:
+    """The details-block row naming the single file a run wrote."""
+    return FooterRow("📄", f"Report ({output_format})", str(output_file), "bold cyan")
 
 
 def _write_split_reports(
@@ -1903,23 +1911,21 @@ def _emit_json_report(
     With a ``session`` the report is the v2 projection of that session; without
     one it is the legacy per-profile document.
     """
+    # The verdict and the announcements are what the tool has to say about the
+    # run, not the report it was asked for: they go to stderr, so the document
+    # keeps stdout to itself.
+    notices = console.notices
     if interactive:
         if is_valid:
-            console.print(
+            notices.print(
                 f"\n{' ' * 2}✅ [bold]Validation [green]PASSED![/green]. "
                 f"\n{' ' * 5}RO-Crate is valid according to the profile(s): "
                 f"[cyan]{', '.join(profile_identifiers)}[/cyan][/bold]"
             )
         else:
-            console.print(f"\n{' ' * 2}❌ [bold]Validation [red]FAILED![/red][/bold]")
-        if output_file:
-            console.print(
-                f"\n{' ' * 2}📝 [bold]Writing validation results in JSON format "
-                f'to the file "{output_file}"[/bold]{"." * 4} ',
-                end="",
-            )
-        else:
-            console.print(f"\n{' ' * 2}📋 [bold]The validation report in JSON format: [/bold]\n")
+            notices.print(f"\n{' ' * 2}❌ [bold]Validation [red]FAILED![/red][/bold]")
+        if not output_file:
+            notices.print(f"\n{' ' * 2}📋 [bold]The validation report in JSON format: [/bold]\n")
 
     # Generate the JSON output and write it to the specified output file or to stdout
     with output_file.open("w", encoding="utf-8") if output_file else nullcontext(sys.stdout) as f:
@@ -1933,5 +1939,7 @@ def _emit_json_report(
         else:
             dump_json(build_report(session, passed=is_valid, verbose=verbose), f)
 
-    if interactive and output_file:
-        console.print("[bold]DONE![/bold]", end="\n\n")
+    if output_file:
+        # Where the report went, said the same way whether the run was
+        # interactive or not: a batch says it in its footer, a single crate here.
+        _announce_destination(console, _report_file_row(output_file, "json"))

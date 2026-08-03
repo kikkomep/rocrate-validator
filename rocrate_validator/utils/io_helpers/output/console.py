@@ -58,12 +58,16 @@ class Console(BaseConsole):
         a listing. Keeping the two apart is what lets ``-f json`` be piped
         straight into a parser whatever the run had to report along the way.
 
-        The twin mirrors this console's rendering (width, colour, whether it is
-        disabled at all), is built once, and is its own ``notices``, so passing
-        it around cannot spawn a chain of consoles. It is declared with
-        ``stderr=True`` rather than bound to ``sys.stderr``: Rich then resolves
-        the stream at each write, so a caller redirecting it afterwards — a test
-        harness, an embedding application — is honoured.
+        The twin mirrors this console's colour and whether it is disabled at
+        all, is built once, and is its own ``notices``, so passing it around
+        cannot spawn a chain of consoles. It is declared with ``stderr=True``
+        rather than bound to ``sys.stderr``: Rich then resolves the stream at
+        each write, so a caller redirecting it afterwards — a test harness, an
+        embedding application — is honoured.
+
+        Its **width is its own**, taken from stderr: the two streams can go to
+        different places, and a report narrowed with ``--output-line-width``
+        must not shrink the progress bar in the terminal watching it.
         """
         if self.stderr:
             return self
@@ -71,11 +75,22 @@ class Console(BaseConsole):
             self._notices = Console(
                 stderr=True,
                 no_color=self.no_color,
-                width=self.width,
                 disabled=self.disabled,
                 interactive=self.interactive,
             )
         return self._notices
+
+    def apply_report_width(self, width: int | None) -> None:
+        """
+        Render the document ``width`` columns wide, unless a terminal decides.
+
+        ``--output-line-width`` exists because a report leaving the screen — a
+        file, or a redirected stdout — has no terminal to take its width from,
+        and would otherwise fall back to a default 80 columns. When there *is* a
+        terminal, its size wins: a report shown in a window should fit it.
+        """
+        if width and not self.is_terminal:
+            self.width = width
 
     def __jupyter_environment__(self) -> bool:
         from rocrate_validator.cli.utils import running_in_jupyter  # noqa: PLC0415

@@ -24,7 +24,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from click.testing import CliRunner
-from pytest import fixture
+from pytest import fixture, mark
 
 from rocrate_validator import services
 from rocrate_validator.cli.main import cli
@@ -196,6 +196,38 @@ def test_validate_output_file_json_report(cli_runner: CliRunner, tmp_path: Path)
     assert "AttributeError" not in result.output
     assert output_file.exists(), "The JSON report file was not created"
     json.loads(output_file.read_text(encoding="utf-8"))  # must be valid JSON
+
+
+def _widest_line(text: str) -> int:
+    return max((len(line.rstrip()) for line in text.splitlines()), default=0)
+
+
+@mark.parametrize("width", [60, 100])
+def test_validate_sizes_a_redirected_text_report(cli_runner: CliRunner, width: int):
+    """
+    ``-w`` sizes the report wherever it goes, not only into ``-o``.
+
+    A report redirected out of the terminal is the same document written to a
+    file by another route: with no terminal to take a width from, it would
+    otherwise fall back to a default 80 columns.
+    """
+    result = cli_runner.invoke(
+        cli, ["validate", str(ValidROC().wrroc_paper_long_date), "--no-paging", "-w", str(width)]
+    )
+
+    assert result.exit_code in (0, 1), result.output
+    assert _widest_line(result.stdout) <= width
+    assert _widest_line(result.stdout) > width - 10, "the report should fill the width it was given"
+
+
+def test_sessions_report_sizes_its_text_report(cli_runner: CliRunner, isolated_sessions_dir):
+    """The same document rebuilt from a session takes the same option."""
+    _write_session_with_failures(isolated_sessions_dir, name="sized")
+
+    result = cli_runner.invoke(cli, ["sessions", "report", "sized", "-w", "60"])
+
+    assert result.exit_code == 0, result.output
+    assert _widest_line(result.stdout) <= 60
 
 
 def test_validate_with_invalid_profiles_path_dir(cli_runner: CliRunner):

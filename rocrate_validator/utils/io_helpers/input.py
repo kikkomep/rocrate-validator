@@ -23,12 +23,23 @@ from InquirerPy.resolver import prompt
 from rocrate_validator.utils import log as logging
 
 if TYPE_CHECKING:
-    from rich.console import Console
-
     from rocrate_validator.models import Profile
+    from rocrate_validator.utils.io_helpers.output.console import Console
 
 # set up logging
 logger = logging.getLogger(__name__)
+
+
+def asking(console: Console | None) -> Console | None:
+    """
+    Where a prompt is written: the same channel as every other notice.
+
+    Asking a question is not part of the document the command produces — a
+    report, a listing — so it must not land in it. Every function in this
+    module goes through here, rather than trusting each caller to hand over
+    the right console.
+    """
+    return console.notices if console is not None else None
 
 
 def __get_single_char_win32__(
@@ -39,6 +50,7 @@ def __get_single_char_win32__(
     """
     import msvcrt  # noqa: PLC0415
 
+    console = asking(console)
     char = None
     while char is None or (choices and char not in choices):
         if console and message:
@@ -62,6 +74,7 @@ def __get_single_char_unix__(
     import termios  # noqa: PLC0415
     import tty  # noqa: PLC0415
 
+    console = asking(console)
     fd = sys.stdin.fileno()
     old_settings = termios.tcgetattr(fd)
     char = None
@@ -108,7 +121,7 @@ def single_choice(console: Console, message: str, choices: list[tuple[object, st
             "choices": [Choice(value, label) for value, label in choices],
         }
     ]
-    console.print("\n")
+    console.notices.print("\n")
     answer = prompt(
         question,
         style={"questionmark": "#ff9d00 bold", "question": "bold", "answer": "magenta", "pointer": "magenta"},
@@ -133,7 +146,7 @@ def multiple_choice(console: Console, choices: list[Profile]):
             "choices": [Choice(i, f"{choices[i].identifier}: {choices[i].name}") for i in range(len(choices))],
         }
     ]
-    console.print("\n")
+    console.notices.print("\n")
     selected = prompt(
         question,
         style={"questionmark": "#ff9d00 bold", "question": "bold", "checkbox": "magenta", "answer": "magenta"},
