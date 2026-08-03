@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import sys
 from typing import Any
 
 from rich.console import Console as BaseConsole
@@ -61,13 +60,16 @@ class Console(BaseConsole):
 
         The twin mirrors this console's rendering (width, colour, whether it is
         disabled at all), is built once, and is its own ``notices``, so passing
-        it around cannot spawn a chain of consoles.
+        it around cannot spawn a chain of consoles. It is declared with
+        ``stderr=True`` rather than bound to ``sys.stderr``: Rich then resolves
+        the stream at each write, so a caller redirecting it afterwards — a test
+        harness, an embedding application — is honoured.
         """
-        if self.file is sys.stderr:
+        if self.stderr:
             return self
         if self._notices is None:
             self._notices = Console(
-                file=sys.stderr,
+                stderr=True,
                 no_color=self.no_color,
                 width=self.width,
                 disabled=self.disabled,
