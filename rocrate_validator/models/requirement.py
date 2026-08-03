@@ -348,7 +348,14 @@ class Requirement(ABC):
     def __str__(self) -> str:
         return self.name
 
-    def to_dict(self, with_profile: bool = True, with_checks: bool = True) -> dict:
+    def to_dict(self, with_profile: bool = True, with_checks: bool = True, profile_as_reference: bool = False) -> dict:
+        """
+        :param profile_as_reference: serialize the profile as its identifier
+            instead of the whole object. A requirement is serialized once per
+            issue, and the profile is the same handful of objects over and over,
+            so a document holding many issues is better off collecting the
+            definitions once (see :attr:`ValidationSession.profile_definitions`).
+        """
         result = {
             "identifier": self.identifier,
             "name": self.name,
@@ -356,7 +363,7 @@ class Requirement(ABC):
             "order": self.order_number,
         }
         if with_profile:
-            result["profile"] = self.profile.to_dict()
+            result["profile"] = self.profile.identifier if profile_as_reference else self.profile.to_dict()
         if with_checks:
             result["checks"] = [_.to_dict(with_requirement=False, with_profile=False) for _ in self._checks]
         return result
@@ -636,7 +643,9 @@ class RequirementCheck(ABC):
         """
         return None
 
-    def to_dict(self, with_requirement: bool = True, with_profile: bool = True) -> dict:
+    def to_dict(
+        self, with_requirement: bool = True, with_profile: bool = True, profile_as_reference: bool = False
+    ) -> dict:
         result = {
             "identifier": self.identifier,
             "label": self.relative_identifier,
@@ -646,7 +655,9 @@ class RequirementCheck(ABC):
             "severity": self.severity.name,
         }
         if with_requirement:
-            result["requirement"] = self.requirement.to_dict(with_profile=with_profile, with_checks=False)
+            result["requirement"] = self.requirement.to_dict(
+                with_profile=with_profile, with_checks=False, profile_as_reference=profile_as_reference
+            )
         return result
 
     def __eq__(self, other: object) -> bool:

@@ -519,7 +519,17 @@ def test_batch_result_to_dict_is_the_v2_report():
 
     report = BatchValidationResult(session).to_dict()
     assert report["meta"]["report_schema_version"] == "2.0"
-    assert sorted(report) == ["crates", "meta", "passed", "session", "statistics", "validation_settings"]
+    assert sorted(report) == [
+        "checks",
+        "crates",
+        "meta",
+        "passed",
+        "profiles",
+        "requirements",
+        "session",
+        "statistics",
+        "validation_settings",
+    ]
     # The pre-v2 keys moved to the legacy renderer.
     assert "batch_passed" not in report
     assert "results" not in report
@@ -794,6 +804,39 @@ def test_batch_validate_split_per_crate_legacy(cli_runner: CliRunner, tmp_path):
     document = json.loads((out_dir / "crate-0.json").read_text())
     assert sorted(document) == ["issues", "meta", "passed", "statistics", "validation_settings"]
     assert json.loads((out_dir / "index.json").read_text())["schema"] == "legacy"
+
+
+def test_split_per_crate_legacy_keeps_the_check_inside_every_issue(cli_runner: CliRunner, tmp_path):
+    """The legacy split documents predate the definition tables: issues stay self-contained."""
+    coll = tmp_path / "collection"
+    coll.mkdir()
+    shutil.copytree(InvalidFileDescriptor().invalid_jsonld_not_compacted, coll / "bad-crate")
+    out_dir = tmp_path / "out"
+    result = cli_runner.invoke(
+        cli,
+        [
+            "--no-interactive",
+            "validate",
+            str(coll),
+            "-f",
+            "json",
+            "--split-per-crate",
+            "--json-schema",
+            "legacy",
+            "-d",
+            str(out_dir),
+            *_VALIDATE_OPTS,
+        ],
+    )
+    assert result.exit_code == 1, result.output
+
+    document = json.loads((out_dir / "bad-crate.json").read_text())
+    issues = document["issues"]
+    assert issues, "an invalid crate must report issues for this test to mean anything"
+    check = issues[0]["check"]
+    assert isinstance(check, dict), "the legacy schema carries the check object, not its identifier"
+    assert check["identifier"]
+    assert check["requirement"]["profile"]["identifier"] == "ro-crate-1.1"
 
 
 def test_split_per_crate_rejects_non_json_formats(cli_runner: CliRunner, tmp_path):
@@ -1903,6 +1946,59 @@ def test_sessions_show_stats(cli_runner: CliRunner, isolated_sessions_dir):
     assert result.exit_code == 0, result.output
     assert "Statistics" in result.output
     assert "Outcome Summary" in result.output
+
+
+def test_sessions_show_stats_reads_normalized_issues(cli_runner: CliRunner, isolated_sessions_dir):
+    """The statistics renderers read self-contained issues: the checks the session
+    entries name by identifier must be resolved back into objects first."""
+    isolated_sessions_dir.mkdir(parents=True, exist_ok=True)
+    now = "2026-06-22T10:00:00+00:00"
+    data = {
+        "session": {
+            "version": "1.0",
+            "rocrate_validator_version": "test",
+            "created_at": now,
+            "updated_at": now,
+            "status": "completed",
+            "total_crates": 2,
+            "passed_crates": 1,
+            "invalid_crates": 1,
+            "errored_crates": 0,
+            "pending_crates": 0,
+        },
+        "validation_settings": {},
+        "batch_options": {"profile_identifiers": ["ro-crate-1.1"], "no_auto_profile": False},
+        # the definition tables the issues reference by identifier
+        "checks": {
+            "ro-crate-1.1_1.1": {"identifier": "ro-crate-1.1_1.1", "name": "A check", "requirement": "ro-crate-1.1_1"}
+        },
+        "requirements": {"ro-crate-1.1_1": {"identifier": "ro-crate-1.1_1", "profile": "ro-crate-1.1"}},
+        "profiles": {"ro-crate-1.1": {"identifier": "ro-crate-1.1", "name": "A profile"}},
+        "crates": [
+            {
+                "path": "/data/crateA",
+                "status": "completed",
+                "passed": False,
+                "profiles": ["ro-crate-1.1"],
+                "issues": [{"severity": "REQUIRED", "message": "boom", "check": "ro-crate-1.1_1.1"}],
+                "statistics": {"total_checks": 2, "total_passed_checks": 1, "total_failed_checks": 1},
+            },
+            {
+                "path": "/data/crateB",
+                "status": "completed",
+                "passed": True,
+                "profiles": ["ro-crate-1.1"],
+                "issues": [],
+                "statistics": {"total_checks": 2, "total_passed_checks": 2},
+            },
+        ],
+    }
+    (isolated_sessions_dir / "stat02.json").write_text(json.dumps(data), encoding="utf-8")
+
+    result = cli_runner.invoke(cli, ["--no-interactive", "sessions", "show", "stat02", "--stats"])
+
+    assert result.exit_code == 0, result.output
+    assert "ro-crate-1.1_1.1" in result.output
 
 
 def test_sessions_show_no_longer_writes_files(cli_runner: CliRunner, isolated_sessions_dir):

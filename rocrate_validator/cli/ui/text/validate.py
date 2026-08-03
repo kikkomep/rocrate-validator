@@ -41,6 +41,7 @@ if TYPE_CHECKING:
         BatchCrateEntry,
         BatchValidationResult,
         ValidationResult,
+        ValidationSession,
         ValidationSettings,
         ValidationStatistics,
     )
@@ -594,15 +595,16 @@ class BatchValidationCommandView:
             self.console.print(Padding(Rule(style="dim"), (1, 0)))
             self.console.print(Padding("[bold]Failed crate details:[/bold]", (0, 2)))
             for entry in failures:
-                self._show_crate_detail(entry)
+                self._show_crate_detail(entry, batch_result.session)
                 self.console.print(Padding(Rule(style="dim"), (0, 0)))
 
-    def _show_crate_detail(self, entry: BatchCrateEntry):
+    def _show_crate_detail(self, entry: BatchCrateEntry, session: ValidationSession):
         """
         Show the detailed outcome of a failed crate in verbose batch mode.
 
         Rendered entirely from the persisted session entry (headline statistics
-        and serialized issues), so it needs no in-memory validation result.
+        and serialized issues), so it needs no in-memory validation result. The
+        session is what turns the check each issue names back into an object.
         """
         header = f"\n[red]✗ FAILED[/red]: [bold]{entry.path}[/bold]"
         if entry.duration:
@@ -630,7 +632,7 @@ class BatchValidationCommandView:
 
         # Group the crate's issues by severity, then by failed check.
         issues_by_severity: dict[str, dict[str, list[dict]]] = {}
-        for issue in entry.issues or []:
+        for issue in session.inlined_issues(entry.issues):
             severity_name = issue.get("severity") or "REQUIRED"
             check = issue.get("check") or {}
             check_label = f"[bold]{check.get('identifier', '?')}[/bold] - {check.get('name', '')}"

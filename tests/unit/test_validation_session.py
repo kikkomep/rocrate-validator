@@ -24,6 +24,7 @@ from rocrate_validator.models import batch as batch_module
 
 CRATES_PATH = Path(__file__).resolve().parent.parent / "data" / "crates"
 CRATE = str(CRATES_PATH / "valid" / "workflow-roc")
+INVALID_CRATE = str(CRATES_PATH / "invalid" / "0_file_descriptor_format")
 
 BASE_SETTINGS = {"skip_availability_check": True, "disable_remote_crate_download": True}
 
@@ -130,6 +131,42 @@ def test_session_level_profile_defaults(tmp_path):
     entry = session._find_entry(CRATE)
     assert entry is not None
     assert entry.profiles == ["ro-crate-1.1"]
+
+
+def test_definitions_are_recorded_and_survive_a_round_trip(tmp_path):
+    """The issues name their check, so the session has to carry what the names mean."""
+    session_file = tmp_path / "session.json"
+    with ValidationSession.open(path=session_file, settings=BASE_SETTINGS) as session:
+        session.validate(INVALID_CRATE, profile_identifiers="ro-crate-1.1")
+
+    assert session.check_definitions, "a crate that raised issues must have defined their checks"
+    assert "ro-crate-1.1" in session.profile_definitions
+    assert session.profile_definitions["ro-crate-1.1"]["uri"], "a definition is the whole profile, not just its name"
+
+    stored = json.loads(session_file.read_text())
+    loaded = ValidationSession.load(session_file)
+    for key, definitions in (
+        ("checks", session.check_definitions),
+        ("requirements", session.requirement_definitions),
+        ("profiles", session.profile_definitions),
+    ):
+        assert stored[key] == definitions
+        assert getattr(loaded, f"{key[:-1]}_definitions") == definitions
+
+
+def test_the_tables_hold_one_definition_however_many_issues_point_at_it(tmp_path):
+    """The whole point: the check is stored once, not once per issue it raised."""
+    with ValidationSession.open(path=tmp_path / "s.json", settings=BASE_SETTINGS) as session:
+        session.validate(INVALID_CRATE, profile_identifiers="ro-crate-1.1")
+
+    issues = session.crates[0].issues or []
+    assert issues, "the crate must have raised issues for this test to mean anything"
+    assert all(isinstance(i["check"], str) for i in issues), "an issue names its check"
+    assert len(session.check_definitions) <= len({i["check"] for i in issues})
+    # every reference resolves, and resolving restores a self-contained issue
+    inlined = session.inlined_issues(issues)
+    assert [i["check"]["identifier"] for i in inlined] == [i["check"] for i in issues]
+    assert all(isinstance(i["check"]["requirement"]["profile"], dict) for i in inlined)
 
 
 def _saved_session(path: Path) -> ValidationSession:

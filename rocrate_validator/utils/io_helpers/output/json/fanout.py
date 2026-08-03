@@ -91,7 +91,7 @@ def crate_ids(entries: list[BatchCrateEntry]) -> dict[str, str]:
     return ids
 
 
-def crate_legacy_doc(entry: BatchCrateEntry, validation_settings: dict[str, Any]) -> dict[str, Any]:
+def crate_legacy_doc(session: ValidationSession, entry: BatchCrateEntry) -> dict[str, Any]:
     """
     Re-project one crate entry into a self-contained legacy document.
 
@@ -99,8 +99,10 @@ def crate_legacy_doc(entry: BatchCrateEntry, validation_settings: dict[str, Any]
     the crate's outcome is wrapped in the ``meta`` and ``validation_settings``
     that a single-crate legacy report carries at its top level, with
     ``profile_identifiers`` set to the profiles this crate was validated against.
+    The issues are put back in their self-contained form: the legacy document
+    predates the session's definition tables and must not see them.
     """
-    settings = dict(validation_settings or {})
+    settings = dict(session.validation_settings or {})
     # The batch settings describe no single crate, so the URI is filled in per
     # crate here (which also keeps the placeholder the batch settings carry out
     # of the report).
@@ -113,7 +115,7 @@ def crate_legacy_doc(entry: BatchCrateEntry, validation_settings: dict[str, Any]
         },
         "validation_settings": settings,
         "passed": entry.passed,
-        "issues": entry.issues or [],
+        "issues": session.inlined_issues(entry.issues),
         "statistics": entry.statistics,
     }
 
@@ -206,7 +208,7 @@ def split_documents(
     documents: dict[str, dict[str, Any]] = {}
     for entry in entries:
         if schema == "legacy":
-            documents[files[entry.path]] = crate_legacy_doc(entry, session.validation_settings)
+            documents[files[entry.path]] = crate_legacy_doc(session, entry)
         else:
             documents[files[entry.path]] = crate_v2_doc(session, entry, verbose=verbose)
 

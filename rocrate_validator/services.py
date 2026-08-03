@@ -542,6 +542,10 @@ def _prepare_batch_session(
     # unreachable URI, a locked file), so a resume gives them another go.
     completed = {e.path: e for e in previous.crates if e.status == "completed"}
     session.crates = [completed.get(p) or BatchCrateEntry(path=p, status="pending") for p in rocrate_uris]
+    # the definitions that the carried-over issues reference by identifier
+    session.check_definitions = dict(previous.check_definitions)
+    session.requirement_definitions = dict(previous.requirement_definitions)
+    session.profile_definitions = dict(previous.profile_definitions)
     pending = [e.path for e in session.crates if e.status != "completed"]
     logger.info(
         "Resuming batch session: %d/%d crates already validated, %d to validate",

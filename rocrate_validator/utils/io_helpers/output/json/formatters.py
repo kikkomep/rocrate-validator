@@ -22,6 +22,7 @@ from rocrate_validator.models import (
     BatchValidationResult,
     CustomEncoder,
     ValidationResult,
+    ValidationSession,
     ValidationStatistics,
 )
 from rocrate_validator.utils import log as logging
@@ -152,6 +153,20 @@ class ValidationResultsJSONOutputFormatter(OutputFormatter):
         yield format_validation_results(self._results, console=console, console_options=options)
 
 
+def _denormalised_session(session: ValidationSession) -> dict:
+    """
+    The session as the legacy schema had it: no definition tables, issues inlined.
+
+    A session names the check that raised an issue, the requirement behind it and
+    its profile, keeping each definition once (see :meth:`ValidationSession.inlined_issues`).
+    """
+    document = session.to_dict()
+    for table in ("checks", "requirements", "profiles"):
+        document.pop(table, None)
+    document["crates"] = session.inlined_crates()
+    return document
+
+
 def format_batch_validation_result(
     data: BatchValidationResult,
     console: Console | None = None,  # pylint: disable=unused-argument
@@ -168,16 +183,16 @@ def format_batch_validation_result(
     with ``crates``, and the bare ``meta.version``.
     """
     session = data.session
-    json_output = session.to_dict()
+    json_output = _denormalised_session(session)
     json_output["results"] = [
         {
-            "crate": entry.path,
-            "profiles": entry.profiles or [],
-            "passed": entry.passed,
-            "issues": entry.issues or [],
-            "statistics": entry.statistics,
+            "crate": crate["path"],
+            "profiles": crate["profiles"],
+            "passed": crate["passed"],
+            "issues": crate["issues"],
+            "statistics": crate["statistics"],
         }
-        for entry in session.crates
+        for crate in json_output["crates"]
     ]
     json_output["batch_passed"] = data.passed()
     json_output["meta"] = {

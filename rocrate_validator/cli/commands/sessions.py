@@ -356,8 +356,10 @@ def _show_session(
 
     if stats:
         # The issue details are not repeated here: with -v they are already
-        # rendered by the summary above (verbose failed-crate details).
-        render_statistics(console, [e.to_dict() for e in entries])
+        # rendered by the summary above (verbose failed-crate details). The
+        # statistics renderers read self-contained issues, so the checks the
+        # session entries name by identifier are resolved back into objects.
+        render_statistics(console, session.inlined_crates(entries))
 
     if session.is_completed():
         render_batch_footer(console, result, [])
@@ -379,7 +381,7 @@ def _write_session_report(
 ) -> None:
     """Write the complete report of a stored session to ``output_file`` or stdout."""
     session = BatchSession.load(session_file)
-    crate_dicts = [e.to_dict() for e in session.crates]
+    crate_dicts = session.inlined_crates()
 
     if output_format == "json":
         # The very same report `validate -f json` writes, rebuilt from what was
@@ -438,7 +440,7 @@ def _render_text_report(console, session: BatchSession, session_file: Path, *, v
     appendix.
     """
     entries = session.crates
-    crate_dicts = [e.to_dict() for e in entries]
+    crate_dicts = session.inlined_crates(entries)
     base = _common_base([e.path for e in entries])
 
     profiles, profiles_style = format_profile_selection(session.profile_identifiers, session.no_auto_profile)

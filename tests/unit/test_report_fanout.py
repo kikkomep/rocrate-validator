@@ -67,20 +67,33 @@ def test_resolve_destination_returns_the_given_directory():
 
 def test_crate_legacy_doc_is_self_contained():
     """The legacy document carries its own meta and settings, unlike a v2 item."""
-    entry = BatchCrateEntry(
-        path="/data/crateA",
-        status="completed",
-        passed=False,
-        profiles=["ro-crate-1.1"],
-        issues=[{"severity": "REQUIRED"}],
-        statistics={"total_checks": 3},
+    session = ValidationSession(
+        validation_settings={"requirement_severity": "REQUIRED", "rocrate_uri": "<property object>"},
+        crate_paths=["/data/crateA"],
     )
-    document = crate_legacy_doc(entry, {"requirement_severity": "REQUIRED", "rocrate_uri": "<property object>"})
+    session.check_definitions = {
+        "ro-crate-1.1_1.1": {"identifier": "ro-crate-1.1_1.1", "name": "A check", "requirement": "ro-crate-1.1_1"}
+    }
+    session.requirement_definitions = {"ro-crate-1.1_1": {"identifier": "ro-crate-1.1_1", "profile": "ro-crate-1.1"}}
+    session.profile_definitions = {"ro-crate-1.1": {"identifier": "ro-crate-1.1", "name": "A profile"}}
+    entry = session.crates[0]
+    entry.status = "completed"
+    entry.passed = False
+    entry.profiles = ["ro-crate-1.1"]
+    # as the session stores it: the issue names its check instead of repeating it
+    entry.issues = [{"severity": "REQUIRED", "check": "ro-crate-1.1_1.1"}]
+    entry.statistics = {"total_checks": 3}
+
+    document = crate_legacy_doc(session, entry)
 
     assert sorted(document) == ["issues", "meta", "passed", "statistics", "validation_settings"]
     assert sorted(document["meta"]) == ["generated_by", "version"], "legacy meta stays as it always was"
     assert document["passed"] is False
-    assert document["issues"] == entry.issues
+    # The legacy schema predates the definition tables: the issue it carries
+    # must hold the whole check object again, not the identifier.
+    check = document["issues"][0]["check"]
+    assert check["identifier"] == "ro-crate-1.1_1.1"
+    assert check["requirement"]["profile"] == session.profile_definitions["ro-crate-1.1"]
     # The batch settings describe no single crate: the URI is filled in per crate.
     assert document["validation_settings"]["rocrate_uri"] == "/data/crateA"
     assert document["validation_settings"]["profile_identifiers"] == ["ro-crate-1.1"]

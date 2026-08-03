@@ -113,7 +113,9 @@ def _issue_columns(issue: dict) -> list:
     """The issue-level cells of one serialized issue record."""
     chk = issue.get("check") or {}
     req = chk.get("requirement") or {}
-    profile = req.get("profile") or {}
+    # the profile is referenced by identifier; older sessions embedded the object
+    profile = req.get("profile") or ""
+    profile_identifier = profile.get("identifier", "") if isinstance(profile, dict) else profile
     return [
         issue.get("severity") or "",
         # Multi-line SHACL messages carry the indentation of the Turtle
@@ -128,5 +130,5 @@ def _issue_columns(issue: dict) -> list:
         chk.get("severity") or "",
         req.get("identifier") or "",
         req.get("name") or "",
-        profile.get("identifier") or "",
+        profile_identifier,
     ]

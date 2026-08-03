@@ -1368,7 +1368,7 @@ def _write_single_report(
     if output_format == "csv" and session is not None:
         # ``utf-8-sig`` so spreadsheet tools (Excel) detect the encoding; the
         # BOM is skipped when the report goes to stdout.
-        crate_dicts = [entry.to_dict() for entry in session.crates]
+        crate_dicts = session.inlined_crates()
         if output_file:
             with output_file.open("w", encoding="utf-8-sig", newline="") as f:
                 write_report_csv(f, crate_dicts)
@@ -1511,7 +1511,7 @@ def _write_batch_report(
                 )
         return output_file
 
-    crate_dicts = [entry.to_dict() for entry in batch_result.crates]
+    crate_dicts = batch_result.session.inlined_crates(batch_result.crates)
 
     if output_format == "csv":
         # ``utf-8-sig`` so spreadsheet tools (Excel) detect the encoding; the

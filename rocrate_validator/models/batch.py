@@ -27,7 +27,11 @@ from uuid import uuid4
 if TYPE_CHECKING:
     from typing_extensions import Self
 
+    from rocrate_validator.models.requirement import RequirementCheck
+    from rocrate_validator.models.result import CheckIssue
+
 from rocrate_validator import __version__
+from rocrate_validator.models._logging import logger
 from rocrate_validator.models.cache import ValidationCache
 from rocrate_validator.models.outcome import PROCESSED_STATUSES, crate_counts
 from rocrate_validator.models.result import CustomEncoder, ValidationResult
@@ -111,6 +115,13 @@ class ValidationSession:
         # `requirement_severity_only` is dropped by ``ValidationSettings.to_dict()``,
         # so it is tracked here to faithfully reconstruct the settings on resume.
         self.requirement_severity_only: bool = False
+        # The three definition tables the issues reference by identifier instead
+        # of repeating: a run raises tens of thousands of issues over a few dozen
+        # checks, which in turn share a handful of requirements and profiles.
+        # Each table names the next one, so the document is fully normalized.
+        self.check_definitions: dict[str, dict] = {}
+        self.requirement_definitions: dict[str, dict] = {}
+        self.profile_definitions: dict[str, dict] = {}
         # In-memory cache of parsed graphs, owned by the session for the
         # duration of the run and deliberately excluded from serialization.
         self._cache: ValidationCache | None = None
@@ -295,7 +306,8 @@ class ValidationSession:
         passed = all(r.passed() for r in normalized)
         issues: list[Any] = []
         for r in normalized:
-            issues.extend(i.to_dict() for i in r.issues)
+            issues.extend(self._serialize_issue(i) for i in r.issues)
+            self._record_profiles(r)
         entry.status = "completed"
         entry.passed = passed
         entry.profiles = profiles or None
@@ -303,6 +315,59 @@ class ValidationSession:
         entry.issues = issues
         entry.statistics = self._aggregate_statistics(normalized)
         entry.size_bytes = self._compute_size_bytes(crate_path)
+
+    def _serialize_issue(self, issue: CheckIssue) -> dict[str, Any]:
+        """
+        Serialize one issue, naming its check instead of repeating it.
+
+        What distinguishes two issues is their message and the entity they point
+        at; the check that raised them is the same object over and over — a real
+        run holds tens of thousands of issues raised by a few dozen checks. So
+        the issue carries the check identifier and the definition is kept once,
+        in :attr:`check_definitions`.
+        """
+        record = issue.to_dict(with_check=False)
+        record["check"] = issue.check.identifier
+        self._record_check(issue.check)
+        return record
+
+    def _record_check(self, check: RequirementCheck) -> None:
+        """
+        Keep the definition of ``check``, and of the requirement behind it.
+
+        The definition names its requirement, which in turn names its profile,
+        so each of the three is stored exactly once however many issues,
+        requirements or profiles point at it.
+        """
+        if check.identifier in self.check_definitions:
+            return
+        try:
+            definition = check.to_dict(profile_as_reference=True)
+            requirement = definition.get("requirement")
+            if isinstance(requirement, dict):
+                self.requirement_definitions.setdefault(requirement["identifier"], requirement)
+                definition["requirement"] = requirement["identifier"]
+        except Exception:  # a session must never fail over its own bookkeeping
+            logger.debug("Could not record the definition of check %s", check.identifier, exc_info=True)
+            return
+        self.check_definitions[check.identifier] = definition
+
+    def _record_profiles(self, result: ValidationResult) -> None:
+        """
+        Keep the definition of every profile a crate was validated against.
+
+        The issues reference their profile by identifier, so the definitions are
+        collected here — once per session rather than once per issue — and travel
+        with it, which is what lets a stored session be reported on later without
+        the profiles having to be loaded again.
+        """
+        try:
+            profiles = result.context.profiles
+        except Exception:  # a session must never fail over its own bookkeeping
+            logger.debug("Could not record the profiles of a validation result", exc_info=True)
+            return
+        for profile in profiles:
+            self.profile_definitions.setdefault(profile.identifier, profile.to_dict())
 
     @staticmethod
     def _aggregate_statistics(results: list[ValidationResult]) -> dict[str, Any] | None:
@@ -455,8 +520,63 @@ class ValidationSession:
                 "no_auto_profile": self.no_auto_profile,
                 "requirement_severity_only": self.requirement_severity_only,
             },
+            # what the issues reference by identifier: a check names its
+            # requirement, which names its profile
+            "checks": self.check_definitions,
+            "requirements": self.requirement_definitions,
+            "profiles": self.profile_definitions,
             "crates": [c.to_dict() for c in self.crates],
         }
+
+    def _inlined_checks(self) -> dict[str, dict]:
+        """The check definitions with their requirement, and its profile, resolved."""
+        checks: dict[str, dict] = {}
+        for identifier, definition in self.check_definitions.items():
+            requirement = definition.get("requirement")
+            if isinstance(requirement, str):
+                requirement = self.requirement_definitions.get(requirement, requirement)
+            if isinstance(requirement, dict):
+                profile = requirement.get("profile")
+                if isinstance(profile, str) and profile in self.profile_definitions:
+                    requirement = {**requirement, "profile": self.profile_definitions[profile]}
+                checks[identifier] = {**definition, "requirement": requirement}
+            else:
+                checks[identifier] = definition
+        return checks
+
+    def inlined_issues(self, issues: list[Any] | None, checks: dict[str, dict] | None = None) -> list[dict]:
+        """
+        ``issues`` with the check they reference — and its requirement and
+        profile — put back inside each of them.
+
+        The inverse of the normalization done on the way in, for the consumers
+        that want a self-contained issue: every renderer, and the frozen legacy
+        report. The copies are shallow and share the resolved checks, so
+        restoring the shape does not restore the cost of repeating it.
+
+        :param checks: the resolved checks, when the caller already has them
+            (see :meth:`inlined_crates`); computed from the tables otherwise.
+        """
+        if not issues:
+            return []
+        resolved = self._inlined_checks() if checks is None else checks
+        inlined = []
+        for issue in issues:
+            reference = issue.get("check")
+            if not isinstance(reference, str):
+                # already inline: a session written before the definition tables
+                inlined.append(issue)
+                continue
+            # a reference with no definition keeps at least the identifier, so
+            # that a consumer always finds an object where it expects one
+            inlined.append({**issue, "check": resolved.get(reference) or {"identifier": reference}})
+        return inlined
+
+    def inlined_crates(self, crates: list[BatchCrateEntry] | None = None) -> list[dict]:
+        """The crate records with self-contained issues, as the renderers read them."""
+        resolved = self._inlined_checks()
+        entries = self.crates if crates is None else crates
+        return [{**entry.to_dict(), "issues": self.inlined_issues(entry.issues, resolved)} for entry in entries]
 
     @classmethod
     def load(cls, path: Path) -> ValidationSession:
@@ -478,6 +598,9 @@ class ValidationSession:
         instance.no_auto_profile = bool(batch_options.get("no_auto_profile", False))
         instance.requirement_severity_only = bool(batch_options.get("requirement_severity_only", False))
         instance.session_path = path
+        instance.check_definitions = dict(data.get("checks") or {})
+        instance.requirement_definitions = dict(data.get("requirements") or {})
+        instance.profile_definitions = dict(data.get("profiles") or {})
         instance.crates = [BatchCrateEntry.from_dict(c) for c in data.get("crates", [])]
         instance._cache = None
         instance._save_throttle = None

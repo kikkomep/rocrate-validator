@@ -90,15 +90,25 @@ def report_meta() -> dict[str, str]:
     }
 
 
-def issue_profile(issue: dict[str, Any]) -> str | None:
-    """The identifier of the profile owning the check that raised ``issue``."""
+def issue_profile(issue: dict[str, Any], session: ValidationSession | None = None) -> str | None:
+    """
+    The identifier of the profile owning the check that raised ``issue``.
+
+    Walks whichever of the two shapes the issue is in: the normalized one, where
+    it names its check and the session's tables lead to the profile, and the
+    inlined one written by sessions predating those tables.
+    """
     check = issue.get("check") or {}
+    if isinstance(check, str):
+        check = (session.check_definitions.get(check) if session else None) or {}
     requirement = check.get("requirement") or {}
-    profile = requirement.get("profile") or {}
-    return profile.get("identifier")
+    if isinstance(requirement, str):
+        requirement = (session.requirement_definitions.get(requirement) if session else None) or {}
+    profile = requirement.get("profile")
+    return profile.get("identifier") if isinstance(profile, dict) else profile
 
 
-def results_by_profile(entry: BatchCrateEntry) -> dict[str, dict[str, Any]]:
+def results_by_profile(entry: BatchCrateEntry, session: ValidationSession | None = None) -> dict[str, dict[str, Any]]:
     """
     The crate's issues bucketed per profile.
 
@@ -109,14 +119,16 @@ def results_by_profile(entry: BatchCrateEntry) -> dict[str, dict[str, Any]]:
     """
     buckets: dict[str, dict[str, Any]] = {profile: {"issues": []} for profile in entry.profiles or []}
     for issue in entry.issues or []:
-        identifier = issue_profile(issue)
+        identifier = issue_profile(issue, session)
         if identifier is None:
             continue
         buckets.setdefault(identifier, {"issues": []})["issues"].append(issue)
     return buckets
 
 
-def crate_entry(entry: BatchCrateEntry, *, verbose: bool = False) -> dict[str, Any]:
+def crate_entry(
+    entry: BatchCrateEntry, *, verbose: bool = False, session: ValidationSession | None = None
+) -> dict[str, Any]:
     """
     Project one crate entry into its ``crates[]`` item.
 
@@ -137,7 +149,7 @@ def crate_entry(entry: BatchCrateEntry, *, verbose: bool = False) -> dict[str, A
         "statistics": crate_statistics(entry, verbose=verbose),
     }
     if verbose:
-        item["results_by_profile"] = results_by_profile(entry)
+        item["results_by_profile"] = results_by_profile(entry, session)
     return item
 
 
@@ -217,8 +229,11 @@ def build_report(
         },
         "validation_settings": validation_settings(session),
         "passed": passed,
+        "crates": [crate_entry(entry, verbose=verbose, session=session) for entry in entries],
         "statistics": aggregate_statistics(entries),
-        "crates": [crate_entry(entry, verbose=verbose) for entry in entries],
+        "checks": session.check_definitions,
+        "requirements": session.requirement_definitions,
+        "profiles": session.profile_definitions,
     }
 
 
