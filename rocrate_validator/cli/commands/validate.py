@@ -622,7 +622,7 @@ def validate(  # noqa: C901, PLR0914
 
         # Single-crate validation is atomic: there is no run-state to resume.
         if resume:
-            Console(file=sys.stderr, no_color=console.no_color, width=console.width).print(
+            console.notices.print(
                 "[yellow]--resume has no effect on a single-crate validation "
                 "(nothing to resume); running a fresh validation.[/yellow]"
             )
@@ -904,7 +904,7 @@ def _decide_fresh(
     total = interrupted.get("total_crates") or 0
     processed = total - (interrupted.get("pending_crates") or 0)
     if interactive:
-        stderr_console = Console(file=sys.stderr, no_color=console.no_color, width=console.width)
+        stderr_console = console.notices
         stderr_console.print(
             f"[yellow]Found an interrupted validation matching this command "
             f"({processed}/{total} crates already validated).[/yellow]"
@@ -1014,7 +1014,7 @@ def _run_batch_validation(
             if split_per_crate
             else f"[cyan]Writing report to {output_file}…[/cyan]"
         )
-        status_console = Console(file=sys.stderr, no_color=console.no_color, width=console.width)
+        status_console = console.notices
         report_ctx = status_console.status(status_msg)
     else:
         report_ctx = nullcontext()
@@ -1245,9 +1245,7 @@ def _report_empty_batch(
     "nothing matched" apart from "the command produced nothing". The human
     notice goes to stderr, where it cannot pollute that report.
     """
-    Console(file=sys.stderr, no_color=console.no_color, width=console.width).print(
-        "[bold yellow]No RO-Crates found for batch validation.[/bold yellow]"
-    )
+    console.notices.print("[bold yellow]No RO-Crates found for batch validation.[/bold yellow]")
     if output_format not in ("json", "csv"):
         return
     session = ValidationSession(
@@ -1292,9 +1290,7 @@ def _resolve_output_destination(
     """
 
     def warn(message: str) -> None:
-        Console(file=sys.stderr, no_color=console.no_color, width=console.width).print(
-            f"[yellow]Warning:[/yellow] {message}"
-        )
+        console.notices.print(f"[yellow]Warning:[/yellow] {message}")
 
     # Warn when -o is used with --split-per-crate: the split mode writes one
     # file per crate and ignores the single-file output option.
@@ -1422,7 +1418,7 @@ def _announce_split_destination(console: Console, *, directory: Path, output_for
     carries the very same row. It goes to stderr, so it never mixes with a
     report written to stdout.
     """
-    stderr_console = Console(file=sys.stderr, no_color=console.no_color, width=console.width)
+    stderr_console = console.notices
     stderr_console.print()
     render_details_block(stderr_console, [_split_reports_row(directory, output_format, crates)])
     stderr_console.print()
@@ -1551,7 +1547,7 @@ def _print_batch_header(
     selection. Shown before the per-crate list so the relative crate paths
     printed during validation are easy to interpret.
     """
-    stderr_console = Console(file=sys.stderr, no_color=console.no_color, width=console.width)
+    stderr_console = console.notices
     profiles, profiles_style = format_profile_selection(profile_identifiers, no_auto_profile)
     rows: list[tuple[str, str, str]] = []
     if session_path:
@@ -1585,7 +1581,7 @@ def _report_batch_status(
     (JSON/CSV) sent to stdout. The input scanned is reported up front by
     :func:`_print_batch_header`, so it is not repeated here.
     """
-    stderr_console = Console(file=sys.stderr, no_color=console.no_color, width=console.width)
+    stderr_console = console.notices
 
     rows: list[FooterRow] = []
     if output_file:
@@ -1751,6 +1747,9 @@ def _resolve_profile_identifiers(
     Returns the identifiers and whether they were auto-detected.
     """
     autodetection = False
+    # What the tool has to say about resolving the profiles is a notice, not part
+    # of the report (see :attr:`Console.notices`).
+    notices = console.notices
     if not profile_identifiers:
         # Auto-detect the profile to use for validation (if not disabled)
         candidate_profiles = None
@@ -1764,7 +1763,7 @@ def _resolve_profile_identifiers(
         if interactive and (
             not candidate_profiles or len(candidate_profiles) == 0 or len(candidate_profiles) == len(available_profiles)
         ):
-            console.print(
+            notices.print(
                 Padding(
                     Rule(
                         "[bold yellow]WARNING: [/bold yellow]"
@@ -1775,12 +1774,12 @@ def _resolve_profile_identifiers(
                     (2, 2, 0, 2),
                 )
             )
-            selected_options = multiple_choice(console, available_profiles)
+            selected_options = multiple_choice(notices, available_profiles)
             if selected_options is None or isinstance(selected_options, bool):
                 selected_options = []
             profile_identifiers = [available_profiles[int(o)].identifier for o in selected_options]
             logger.debug("Profile selected: %s", selected_options)
-            console.print(Padding(Rule(style="bold yellow"), (1, 2)))
+            notices.print(Padding(Rule(style="bold yellow"), (1, 2)))
         elif candidate_profiles and len(candidate_profiles) < len(available_profiles):
             logger.debug("Profile identifier autodetected: %s", candidate_profiles[0].identifier)
             autodetection = True
@@ -1788,12 +1787,12 @@ def _resolve_profile_identifiers(
 
     # Fall back to the base profile when nothing could be resolved
     if not profile_identifiers:
-        console.print(f"\n{' ' * 2}[bold yellow]WARNING: [/bold yellow]", end="")
+        notices.print(f"\n{' ' * 2}[bold yellow]WARNING: [/bold yellow]", end="")
         if no_auto_profile:
-            console.print("[bold]Auto-detection of the profiles to use for validation is disabled[/bold]")
+            notices.print("[bold]Auto-detection of the profiles to use for validation is disabled[/bold]")
         else:
-            console.print("[bold]Unable to automatically detect the profile to use for validation[/bold]")
-        console.print(f"{' ' * 11}[bold]The base `ro-crate` profile will be used for validation[/bold]")
+            notices.print("[bold]Unable to automatically detect the profile to use for validation[/bold]")
+        notices.print(f"{' ' * 11}[bold]The base `ro-crate` profile will be used for validation[/bold]")
         profile_identifiers = ["ro-crate"]
 
     return profile_identifiers, autodetection

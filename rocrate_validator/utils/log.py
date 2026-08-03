@@ -18,6 +18,7 @@ import threading
 from io import StringIO
 from logging import CRITICAL, DEBUG, ERROR, INFO, WARNING, Handler, Logger, StreamHandler
 from logging import basicConfig as logging_basicConfig
+from logging import root as logging_root
 from typing import Any, Optional
 
 import colorlog
@@ -67,19 +68,48 @@ __settings__ = DEFAULT_SETTINGS.copy()
 __handlers__: dict[str, Handler] = {}
 
 
-# Create a StringIO stream to capture the logs
+class StderrFormatter(colorlog.ColoredFormatter):
+    """
+    The coloured formatter, deciding on colour from ``sys.stderr`` at format time.
+
+    The records are buffered and only shown when the run is over (see
+    :func:`__print_logs_on_exit__`), so the destination that decides whether
+    escape codes make sense is the *error stream*, not the buffer they are held
+    in. Resolving it late also honours a caller that redirects ``sys.stderr``
+    after the loggers have been built, and gets ``NO_COLOR`` support for free.
+    """
+
+    @property
+    def stream(self):
+        return sys.stderr
+
+    @stream.setter
+    def stream(self, value):
+        """Ignored: the destination is not fixed at construction time."""
+
+
+# The records are collected here and shown in one block when the run is over:
+# emitting them as they happen would cut through the progress bar and the report
+# being rendered.
 __log_stream__ = StringIO()
 
 
-# Define the callback function that will be called on exit
 def __print_logs_on_exit__():
+    """
+    Show the collected logs, once, when the run is over.
+
+    On **stderr**: logs are diagnostics, and the standard output carries the
+    requested document — a JSON or CSV report, a listing — which a log line
+    landing in it would corrupt.
+    """
     log_contents = __log_stream__.getvalue()
     if not log_contents:
         return
-    # print the logs
-    console = Console()
+    # `from_ansi` so the colours the formatter emitted are rendered as colours
+    # rather than printed as escape sequences
+    console = Console(file=sys.stderr)
     console.print(Padding(Rule("[bold cyan]Log Report[/bold cyan]", style="bold cyan"), (2, 0, 1, 0)))
-    console.print(Padding(Text(log_contents), (0, 1)))
+    console.print(Padding(Text.from_ansi(log_contents), (0, 1)))
     console.print(Padding(Rule("", style="bold cyan"), (0, 0, 2, 0)))
     # close the stream
     __log_stream__.close()
@@ -110,7 +140,7 @@ def __setup_logger__(logger: Logger):
     if not ch:
         ch = StreamHandler(__log_stream__)
         ch.setLevel(level)
-        ch.setFormatter(colorlog.ColoredFormatter(get_log_format(level)))
+        ch.setFormatter(StderrFormatter(get_log_format(level)))
         logger.addHandler(ch)
 
     # enable/disable the logger
@@ -164,6 +194,19 @@ def basicConfig(level: int, modules_config: dict | None = None):
             },
             handlers=[StreamHandler(__log_stream__)],
         )
+
+        # `colorlog.basicConfig` installs a formatter bound to no stream, which
+        # colours unconditionally: give the root handlers the one that looks at
+        # stderr before deciding.
+        for handler in logging_root.handlers:
+            formatter = handler.formatter
+            if isinstance(formatter, colorlog.ColoredFormatter) and not isinstance(formatter, StderrFormatter):
+                handler.setFormatter(
+                    StderrFormatter(
+                        fmt=formatter._fmt,  # pylint: disable=protected-access
+                        log_colors=formatter.log_colors,
+                    )
+                )
 
         # reconfigure existing loggers
         for logger in __loggers__.values():

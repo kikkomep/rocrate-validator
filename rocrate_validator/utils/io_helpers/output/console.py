@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import sys
 from typing import Any
 
 from rich.console import Console as BaseConsole
@@ -40,12 +41,39 @@ class Console(BaseConsole):
         super().__init__(*args, force_jupyter=force_jupyter, **kwargs)
         self.disabled = disabled
         self.interactive = interactive
+        self._notices: Console | None = None
         self._formatters: dict[type, Any] = {}
         self._formatters_opts: dict[type, BaseOutputFormatter] = {}
         # Register provided formatters if any
         if formatters:
             for type_, formatter in formatters.items():
                 self.register_formatter(formatter, type_)
+
+    @property
+    def notices(self) -> "Console":
+        """
+        The twin of this console on stderr, for everything that is not the document.
+
+        Warnings, progress, headers and verdicts are what the tool has to *say*
+        about a run; the standard output carries what was asked for — a report,
+        a listing. Keeping the two apart is what lets ``-f json`` be piped
+        straight into a parser whatever the run had to report along the way.
+
+        The twin mirrors this console's rendering (width, colour, whether it is
+        disabled at all), is built once, and is its own ``notices``, so passing
+        it around cannot spawn a chain of consoles.
+        """
+        if self.file is sys.stderr:
+            return self
+        if self._notices is None:
+            self._notices = Console(
+                file=sys.stderr,
+                no_color=self.no_color,
+                width=self.width,
+                disabled=self.disabled,
+                interactive=self.interactive,
+            )
+        return self._notices
 
     def __jupyter_environment__(self) -> bool:
         from rocrate_validator.cli.utils import running_in_jupyter  # noqa: PLC0415

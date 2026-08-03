@@ -15,7 +15,6 @@
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
 
@@ -367,13 +366,9 @@ class BatchValidationCommandView:
         index_width = len(str(total))
         name_width = max((len(_display(p)) for p in rocrate_uris), default=0)
 
-        # Use stderr for progress so it's always visible even when stdout
-        # is redirected to a file.
-        progress_console = Console(
-            file=sys.stderr,
-            no_color=getattr(self.console, "no_color", False),
-            width=getattr(self.console, "width", None),
-        )
+        # Progress is a notice, not the report: on stderr it stays visible even
+        # when stdout is redirected to a file (see :attr:`Console.notices`).
+        progress_console = self.console.notices
 
         progress = _SpacedProgress(
             TextColumn("{task.description}", justify="left"),
