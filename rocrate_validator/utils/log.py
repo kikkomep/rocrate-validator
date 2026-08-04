@@ -81,7 +81,19 @@ class StderrFormatter(colorlog.ColoredFormatter):
 
     @property
     def stream(self):
-        return sys.stderr
+        # While a ``rich.live.Live`` display (the batch progress bar) is active,
+        # ``sys.stderr`` is replaced by a ``rich.file_proxy.FileProxy`` that
+        # redirects stray writes through the display. Its ``isatty()`` always
+        # returns ``False`` — ``io.TextIOBase`` defines it on the class, so the
+        # delegation in ``FileProxy.__getattr__`` never runs — which would make
+        # ``colorlog`` decide there is no terminal and drop every escape code.
+        # Unwrap the proxy so the TTY check sees the real stream.
+        stream = sys.stderr
+        while True:
+            proxied = getattr(stream, "rich_proxied_file", None)
+            if proxied is None:
+                return stream
+            stream = proxied
 
     @stream.setter
     def stream(self, value):
@@ -107,7 +119,7 @@ def __print_logs_on_exit__():
         return
     # `from_ansi` so the colours the formatter emitted are rendered as colours
     # rather than printed as escape sequences
-    console = Console(file=sys.stderr)
+    console = Console(file=sys.stderr, no_color=__settings__.get("no_color", False))
     console.print(Padding(Rule("[bold cyan]Log Report[/bold cyan]", style="bold cyan"), (2, 0, 1, 0)))
     console.print(Padding(Text.from_ansi(log_contents), (0, 1)))
     console.print(Padding(Rule("", style="bold cyan"), (0, 0, 2, 0)))
@@ -140,7 +152,12 @@ def __setup_logger__(logger: Logger):
     if not ch:
         ch = StreamHandler(__log_stream__)
         ch.setLevel(level)
-        ch.setFormatter(StderrFormatter(get_log_format(level)))
+        ch.setFormatter(
+            StderrFormatter(
+                get_log_format(level),
+                no_color=settings.get("no_color", __settings__.get("no_color", False)),
+            )
+        )
         logger.addHandler(ch)
 
     # enable/disable the logger
@@ -163,7 +180,7 @@ def __create_logger__(name: str) -> Logger:
     return logger
 
 
-def basicConfig(level: int, modules_config: dict | None = None):
+def basicConfig(level: int, modules_config: dict | None = None, *, no_color: bool = False):
     """Set the log level and format for the logger"""
     with _lock:
         # set the default log level to ERROR for loggers of other modules
@@ -176,6 +193,9 @@ def basicConfig(level: int, modules_config: dict | None = None):
         # set the default log level and format
         __settings__["level"] = level
         __settings__["format"] = get_log_format(level)
+        # mirror the console's colour decision (``--no-interactive`` /
+        # ``--disable-color``) so buffered logs follow it too
+        __settings__["no_color"] = no_color
 
         # set the log level for the modules
         if modules_config:
@@ -205,6 +225,7 @@ def basicConfig(level: int, modules_config: dict | None = None):
                     StderrFormatter(
                         fmt=formatter._fmt,  # pylint: disable=protected-access
                         log_colors=formatter.log_colors,
+                        no_color=no_color,
                     )
                 )
 

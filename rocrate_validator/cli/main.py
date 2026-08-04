@@ -62,8 +62,9 @@ def cli(ctx: click.Context, debug: bool, version: bool, disable_color: bool, no_
 
     # determine if the console is interactive
     interactive = sys.stdout.isatty() and not no_interactive and not running_in_jupyter()
+    no_color = disable_color or not interactive
 
-    console = Console(no_color=disable_color or not interactive, interactive=interactive)
+    console = Console(no_color=no_color, interactive=interactive)
     # pass the console to subcommands through the click context, after configuration
     ctx.obj["console"] = console
     ctx.obj["pager"] = SystemPager()
@@ -74,8 +75,8 @@ def cli(ctx: click.Context, debug: bool, version: bool, disable_color: bool, no_
         if version:
             console.print(f"[bold]rocrate-validator [cyan]{get_version()}[/cyan][/bold]")
             sys.exit(0)
-        # Set the log level
-        logging.basicConfig(level=logging.DEBUG if debug else logging.WARNING)
+        # Set the log level, mirroring the console's colour decision on the logs
+        logging.basicConfig(level=logging.DEBUG if debug else logging.WARNING, no_color=no_color)
         # If no subcommand is provided, invoke the default command
         if ctx.invoked_subcommand is None:
             # If no subcommand is provided, invoke the default command
