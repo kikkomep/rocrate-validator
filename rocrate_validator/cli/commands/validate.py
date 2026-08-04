@@ -43,12 +43,14 @@ from rocrate_validator.cli.ui.text.validate import (
 )
 from rocrate_validator.errors import ROCrateInvalidURIError
 from rocrate_validator.models import (
+    BatchCrateEntry,
     BatchValidationResult,
     Severity,
     ValidationCache,
     ValidationResult,
     ValidationSession,
     ValidationSettings,
+    crate_counts,
 )
 from rocrate_validator.utils import log as logging
 from rocrate_validator.utils.io_helpers.input import get_single_char, multiple_choice
@@ -817,6 +819,28 @@ def _is_interrupted_state(state_path: Path) -> dict | None:
     return None
 
 
+def _carried_over_counts(state_path: Path | None, crate_paths: list[str], *, fresh: bool) -> dict[str, int]:
+    """
+    The outcomes a resumed run starts with, counted per bucket.
+
+    A resume validates the pending crates only, so a tally counting this run's
+    callbacks alone would open at zero and never account for what an earlier
+    run already did — while the summary table, sourced from the session,
+    reports all of them. Only the crates still in this run's input are counted:
+    one dropped from the corpus since the last run is not carried over either,
+    exactly as the session does when it resumes.
+    """
+    if fresh or state_path is None or not Path(state_path).exists():
+        return {}
+    try:
+        stored = json.loads(Path(state_path).read_text(encoding="utf-8")).get("crates", [])
+    except Exception:  # missing, corrupt or unreadable: nothing to carry over
+        logger.debug("Could not read the crates of %s", state_path, exc_info=True)
+        return {}
+    wanted = set(crate_paths)
+    return crate_counts([BatchCrateEntry.from_dict(c) for c in stored if c.get("path") in wanted])
+
+
 def _named_session_path(session_name: str, *, resume: bool) -> Path:
     """
     Resolve (and guard) the file path of a named session.
@@ -1007,6 +1031,7 @@ def _run_batch_validation(
         profile_identifiers=profile_identifiers,
         no_auto_profile=no_auto_profile,
         base_path=input_base,
+        carried_over=_carried_over_counts(state_path, crate_paths, fresh=fresh),
     )
     # Writing a large report to a file can take a moment; show a spinner on
     # stderr while it happens (skipped when the summary is rendered to the

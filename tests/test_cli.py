@@ -1563,8 +1563,11 @@ def test_resume_continues_interrupted_run_state(cli_runner: CliRunner, isolated_
 
     result = cli_runner.invoke(cli, ["--no-interactive", "validate", str(coll), "--resume", *_VALIDATE_OPTS])
     assert result.exit_code == 0, result.output
-    # Only the pending crate is validated; the completed one is carried over.
-    assert "[1/1]" in result.output
+    # Only the pending crate is validated; the completed one is carried over —
+    # and the line numbers it against the whole collection, not against the
+    # subset this invocation happened to run.
+    assert result.output.count("passed (") == 1, "only the pending crate is validated again"
+    assert "[2/2]" in result.output
     assert "Total: 2 crates" in result.output
     # On completion the ephemeral run-state is deleted.
     assert not state_path.exists()
@@ -1600,8 +1603,10 @@ def test_resume_key_survives_new_crates_in_collection(
 
     result = cli_runner.invoke(cli, ["--no-interactive", "validate", str(coll), "--resume", *_VALIDATE_OPTS])
     assert result.exit_code == 0, result.output
-    # The completed crate is carried over; the pending one and the new one are validated.
-    assert "[2/2]" in result.output
+    # The completed crate is carried over; the pending one and the new one are
+    # validated, numbered against the whole collection.
+    assert result.output.count("passed (") == 2, "the pending crate and the new one"
+    assert "[3/3]" in result.output
     assert "Total: 3 crates" in result.output
 
 

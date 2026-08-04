@@ -186,3 +186,29 @@ def test_the_summary_total_reads_as_before_on_an_ordinary_run():
     assert "Total: 2 crates" in totals
     assert "errored" not in totals
     assert "pending" not in totals
+
+
+def test_a_resumed_run_opens_its_tally_where_the_session_left_it(monkeypatch, tmp_path):
+    """A resume validates the pending crates only: the tally must not restart from zero."""
+    from rocrate_validator.cli.ui.text import validate as view_module
+
+    recorded: list[dict] = []
+    monkeypatch.setattr(view_module, "format_batch_progress", lambda **kwargs: recorded.append(kwargs) or "")
+
+    crates = ["/data/done-ok", "/data/done-bad", "/data/pending"]
+
+    def fake_batch(*, settings, rocrate_uris, progress_callback, **kwargs):
+        # only the pending crate is validated again
+        progress_callback(crates[2], 1, 1, "passed", "(0 issues)")
+        return BatchValidationResult(ValidationSession(validation_settings={}, crate_paths=crates))
+
+    view = view_module.BatchValidationCommandView(console=Console())
+    view.run_with_progress(
+        fake_batch,
+        settings={},
+        rocrate_uris=crates,
+        carried_over={"passed_crates": 1, "invalid_crates": 1, "errored_crates": 0},
+    )
+
+    assert recorded[0] == {"passed": 1, "failed": 1, "errored": 0, "remaining": 1}, "the tally opens on the session"
+    assert recorded[-1] == {"passed": 2, "failed": 1, "errored": 0, "remaining": 0}

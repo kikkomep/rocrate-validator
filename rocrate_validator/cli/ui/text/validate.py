@@ -377,6 +377,7 @@ class BatchValidationCommandView:
         profile_identifiers: list[str] | None = None,
         no_auto_profile: bool = False,
         base_path: Path | None = None,
+        carried_over: dict[str, int] | None = None,
     ) -> BatchValidationResult:
         """
         Run batch validation with a persistent Rich progress bar on stderr.
@@ -384,11 +385,17 @@ class BatchValidationCommandView:
         The progress bar stays visible at the bottom of the terminal during
         validation and is replaced by the summary once complete. When ``base_path``
         is given, each crate is shown relative to it so the lines stay short.
+
+        :param carried_over: the outcomes a resumed run starts with (the buckets
+            of :func:`crate_counts`). Only the pending crates are validated
+            again, so without this the tally would open at zero and end up
+            disagreeing with the summary table printed right below it.
         """
         total = len(rocrate_uris)
-        passed_count = 0
-        failed_count = 0
-        errored_count = 0
+        carried = carried_over or {}
+        passed_count = int(carried.get("passed_crates") or 0)
+        failed_count = int(carried.get("invalid_crates") or 0)
+        errored_count = int(carried.get("errored_crates") or 0)
 
         def _display(crate_path: str) -> str:
             """Render a crate path relative to ``base_path`` (the scan root) when possible."""
@@ -423,12 +430,26 @@ class BatchValidationCommandView:
         )
 
         with progress:
+            already_done = passed_count + failed_count + errored_count
             task = progress.add_task(
-                description="[cyan]⏳ Initialising batch...[/cyan]",
+                description=(
+                    format_batch_progress(
+                        passed=passed_count,
+                        failed=failed_count,
+                        errored=errored_count,
+                        remaining=total - already_done,
+                    )
+                    if already_done
+                    else "[cyan]⏳ Initialising batch...[/cyan]"
+                ),
                 total=total,
+                completed=already_done,
             )
 
-            def _progress_callback(crate_path, index, total, status, message, profiles=None):
+            # `_total` is the service's own count — on a resume it covers the
+            # pending crates alone. The tally and the numbering are about the
+            # whole corpus, so they use `total` and the crates already done.
+            def _progress_callback(crate_path, index, _total, status, message, profiles=None):
                 nonlocal passed_count, failed_count, errored_count
                 # Finalisation: writing a large session to disk can take a moment;
                 # show it on the bar so the run does not look frozen at 100%.
@@ -448,7 +469,7 @@ class BatchValidationCommandView:
                 if status in ("passed", "failed", "error"):
                     progress_console.print(
                         format_crate_line(
-                            index,
+                            already_done + index,
                             total,
                             status=status,
                             name=disp,
