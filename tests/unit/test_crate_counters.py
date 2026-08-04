@@ -18,7 +18,15 @@ import json
 
 import pytest
 
-from rocrate_validator.models import BatchCrateEntry, ValidationSession, crate_counts, crate_outcome
+from rocrate_validator.cli.ui.text.validate import format_batch_progress, format_batch_totals
+from rocrate_validator.models import (
+    BatchCrateEntry,
+    BatchValidationResult,
+    ValidationSession,
+    crate_counts,
+    crate_outcome,
+)
+from rocrate_validator.utils.io_helpers.output.console import Console
 
 
 @pytest.mark.parametrize(
@@ -109,3 +117,72 @@ def test_a_revalidated_crate_is_not_counted_twice():
     assert session.invalid_crates == 0
     assert session.pending_crates == 2
     assert session.total_crates == 4, "re-validation must not append a second entry"
+
+
+def test_the_progress_tally_counts_the_three_outcomes_apart():
+    """The running tally follows the same taxonomy as every other report of a run."""
+    tally = format_batch_progress(passed=12, failed=3, errored=1, remaining=4)
+
+    assert "12 passed" in tally
+    assert "3 failed" in tally
+    assert "1 errored" in tally, "an errored crate is not a crate that did not conform"
+    assert "4 remaining" in tally
+
+
+def test_the_progress_tally_stays_quiet_when_nothing_errored():
+    """On a healthy run a column of zeros would steal room from the bar itself."""
+    tally = format_batch_progress(passed=12, failed=3, errored=0, remaining=4)
+
+    assert "errored" not in tally
+    assert "3 failed" in tally
+
+
+def test_an_errored_crate_is_not_tallied_as_a_failure(monkeypatch):
+    """The live tally must not fold the two together the way it used to."""
+    from rocrate_validator.cli.ui.text import validate as view_module
+
+    recorded: list[dict] = []
+    monkeypatch.setattr(view_module, "format_batch_progress", lambda **kwargs: recorded.append(kwargs) or "")
+
+    crates = ["/data/ok", "/data/bad", "/data/broken"]
+
+    def fake_batch(*, settings, rocrate_uris, progress_callback, **kwargs):
+        progress_callback(crates[0], 1, 3, "passed", "(0 issues)")
+        progress_callback(crates[1], 2, 3, "failed", "(4 issues)")
+        progress_callback(crates[2], 3, 3, "error", "unreachable URI")
+        return BatchValidationResult(ValidationSession(validation_settings={}, crate_paths=crates))
+
+    view = view_module.BatchValidationCommandView(console=Console())
+    view.run_with_progress(fake_batch, settings={}, rocrate_uris=crates)
+
+    assert recorded[-1] == {"passed": 1, "failed": 1, "errored": 1, "remaining": 0}
+
+
+def test_the_summary_total_names_the_errored_and_pending_crates():
+    """The closing line of the summary table follows the same four buckets."""
+    entries = [
+        BatchCrateEntry(path="/a", status="completed", passed=True),
+        BatchCrateEntry(path="/b", status="completed", passed=False),
+        BatchCrateEntry(path="/c", status="errored", passed=False, error="unreachable"),
+        BatchCrateEntry(path="/d", status="pending"),
+    ]
+    totals = format_batch_totals(crate_counts(entries))
+
+    assert "Total: 4 crates" in totals
+    assert "1 passed" in totals
+    assert "1 failed" in totals, "only the invalid crate is a failure"
+    assert "1 errored" in totals
+    assert "1 pending" in totals
+
+
+def test_the_summary_total_reads_as_before_on_an_ordinary_run():
+    """Nothing errored and nothing left over: the line keeps its two counters."""
+    entries = [
+        BatchCrateEntry(path="/a", status="completed", passed=True),
+        BatchCrateEntry(path="/b", status="completed", passed=False),
+    ]
+    totals = format_batch_totals(crate_counts(entries))
+
+    assert "Total: 2 crates" in totals
+    assert "errored" not in totals
+    assert "pending" not in totals

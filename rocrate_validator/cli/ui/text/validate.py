@@ -25,7 +25,7 @@ from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
 from rich.rule import Rule
 from rich.table import Table
 
-from rocrate_validator.models.outcome import crate_outcome
+from rocrate_validator.models.outcome import crate_counts, crate_outcome
 from rocrate_validator.models.severity import Severity
 from rocrate_validator.utils import log as logging
 from rocrate_validator.utils.io_helpers.colors import get_severity_color
@@ -106,6 +106,46 @@ def format_crate_line(
     if status == "error":
         return f"  [yellow]⚠[/yellow] {idx} {name_cell}  [yellow]{detail}[/yellow]"
     return f"  [dim]·[/dim] {idx} {name_cell}  [dim]pending[/dim]"
+
+
+def format_batch_totals(counts: dict[str, int]) -> str:
+    """
+    The line closing the summary table, from the four disjoint buckets.
+
+    ``counts`` is :func:`crate_counts` — the same counters the JSON report and
+    ``sessions list`` are built from, so the three cannot drift into disagreeing
+    on what a run did. Errored and pending crates are named only when there are
+    any: on the ordinary run this reads exactly as it always did.
+    """
+    cells = [
+        f"[green]{counts['passed_crates']} passed[/green]",
+        f"[red]{counts['invalid_crates']} failed[/red]",
+    ]
+    if counts["errored_crates"]:
+        cells.append(f"[yellow]{counts['errored_crates']} errored[/yellow]")
+    if counts["pending_crates"]:
+        cells.append(f"[dim]{counts['pending_crates']} pending[/dim]")
+    return f"[bold]Total: {counts['total_crates']} crates | {' | '.join(cells)}[/bold]"
+
+
+def format_batch_progress(*, passed: int, failed: int, errored: int, remaining: int) -> str:
+    """
+    The running tally shown under the progress bar.
+
+    The three outcomes are counted apart, as everywhere else the run is
+    reported: a crate the validation could not run on is not a crate that did
+    not conform. Only the closing verdict unites failed and errored, and says
+    so. The errored tally appears only once there is one — on a healthy run a
+    column of zeros would steal room from the bar itself.
+    """
+    errored_cell = f"[yellow]{errored} errored[/yellow] " if errored else ""
+    return (
+        f"[bold]Batch:[/bold] "
+        f"[green]{passed} passed[/green] "
+        f"[red]{failed} failed[/red] "
+        f"{errored_cell}"
+        f"[dim]{remaining} remaining[/dim]"
+    )
 
 
 # The Status cell of the summary table, per crate outcome. A crate the
@@ -348,6 +388,7 @@ class BatchValidationCommandView:
         total = len(rocrate_uris)
         passed_count = 0
         failed_count = 0
+        errored_count = 0
 
         def _display(crate_path: str) -> str:
             """Render a crate path relative to ``base_path`` (the scan root) when possible."""
@@ -388,7 +429,7 @@ class BatchValidationCommandView:
             )
 
             def _progress_callback(crate_path, index, total, status, message, profiles=None):
-                nonlocal passed_count, failed_count
+                nonlocal passed_count, failed_count, errored_count
                 # Finalisation: writing a large session to disk can take a moment;
                 # show it on the bar so the run does not look frozen at 100%.
                 if status == "saving":
@@ -398,8 +439,11 @@ class BatchValidationCommandView:
                 if status == "passed":
                     passed_count += 1
                     progress.update(task, advance=1)
-                elif status in ("failed", "error"):
+                elif status == "failed":
                     failed_count += 1
+                    progress.update(task, advance=1)
+                elif status == "error":
+                    errored_count += 1
                     progress.update(task, advance=1)
                 if status in ("passed", "failed", "error"):
                     progress_console.print(
@@ -415,14 +459,13 @@ class BatchValidationCommandView:
                         )
                     )
                 # Update the status line at the bottom
-                remaining = total - passed_count - failed_count
                 progress.update(
                     task,
-                    description=(
-                        f"[bold]Batch:[/bold] "
-                        f"[green]{passed_count} passed[/green] "
-                        f"[red]{failed_count} failed[/red] "
-                        f"[dim]{remaining} remaining[/dim]"
+                    description=format_batch_progress(
+                        passed=passed_count,
+                        failed=failed_count,
+                        errored=errored_count,
+                        remaining=total - passed_count - failed_count - errored_count,
                     ),
                 )
 
@@ -521,9 +564,9 @@ class BatchValidationCommandView:
         persistent session entries, so they stay complete even when this
         invocation only re-validated part of a resumed batch.
         """
-        total = batch_result.total_crates()
-        passed = len(batch_result.passed_entries())
-        failed = len(batch_result.failed_entries())
+        # The four disjoint buckets, not `failed_entries()` (which unites the
+        # invalid and the errored on purpose, for the closing verdict).
+        counts = crate_counts(batch_result.crates)
 
         # Compute common prefix once so each crate's parent path below it
         # identifies the collection the crate belongs to (workflowhub, rohub,
@@ -575,12 +618,7 @@ class BatchValidationCommandView:
         self.console.print(table)
 
         # Overall stats
-        self.console.print(
-            Padding(
-                f"\n[bold]Total: {total} crates | [green]{passed} passed[/green] | [red]{failed} failed[/red][/bold]",
-                (0, 2),
-            )
-        )
+        self.console.print(Padding(f"\n{format_batch_totals(counts)}", (0, 2)))
 
         # Per-crate details in verbose mode, sourced from the session entries
         # like the summary table: details are available for every failed crate,
