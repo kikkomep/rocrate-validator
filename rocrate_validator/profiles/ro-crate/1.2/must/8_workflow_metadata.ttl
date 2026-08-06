@@ -26,9 +26,11 @@ ro-crate:SoftwareSourceCodeTarget a sh:SPARQLTarget ;
     sh:select """
         SELECT ?this
         WHERE {
+            { SELECT DISTINCT ?root WHERE {
+                ?metadatafile schema:about ?root .
+                FILTER(contains(str(?metadatafile), "ro-crate-metadata.json"))
+            } }
             ?this a schema:SoftwareSourceCode .
-            ?metadatafile schema:about ?root .
-            FILTER(contains(str(?metadatafile), "ro-crate-metadata.json"))
         }
     """ .
 
@@ -48,9 +50,11 @@ ro-crate:ScriptDefinition a sh:NodeShape, validator:HiddenShape ;
         sh:select """
             SELECT ?this
             WHERE {
+                { SELECT DISTINCT ?root WHERE {
+                    ?metadatafile schema:about ?root .
+                    FILTER(contains(str(?metadatafile), "ro-crate-metadata.json"))
+                } }
                 ?this a schema:SoftwareSourceCode .
-                ?metadatafile schema:about ?root .
-                FILTER(contains(str(?metadatafile), "ro-crate-metadata.json"))
                 FILTER NOT EXISTS { ?this a bioschemas:ComputationalWorkflow }
             }
         """
@@ -78,9 +82,11 @@ ro-crate:WorkflowDefinition a sh:NodeShape, validator:HiddenShape ;
         sh:select """
             SELECT ?this
             WHERE {
+                { SELECT DISTINCT ?root WHERE {
+                    ?metadatafile schema:about ?root .
+                    FILTER(contains(str(?metadatafile), "ro-crate-metadata.json"))
+                } }
                 ?this a bioschemas:ComputationalWorkflow .
-                ?metadatafile schema:about ?root .
-                FILTER(contains(str(?metadatafile), "ro-crate-metadata.json"))
             }
         """
     ] ;

@@ -29,8 +29,10 @@ ro-crate:ScriptOrWorkflowImageTarget a sh:SPARQLTarget ;
         WHERE {
             ?sw a schema:SoftwareSourceCode .
             ?sw schema:image ?this .
-            ?metadatafile schema:about ?root .
-            FILTER(contains(str(?metadatafile), "ro-crate-metadata.json"))
+            { SELECT DISTINCT ?root WHERE {
+                ?metadatafile schema:about ?root .
+                FILTER(contains(str(?metadatafile), "ro-crate-metadata.json"))
+            } }
         }
     """ .
 
