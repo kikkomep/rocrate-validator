@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### ⚠️ Breaking Changes
+
+- **The default validation profile is now `ro-crate-1.2`** (was `ro-crate-1.1`). RO-Crate 1.2 is a
+  self-contained profile — it does not inherit from 1.1 — so the applied rule set changes: 95
+  requirements instead of 30. Crates that declare the 1.1 JSON-LD context now fail the
+  `ro-crate-1.2_2.2` check when validated against the default profile.
+
+  This mostly affects **programmatic users**: `services.validate()` uses the default profile when
+  `profile_identifier` is not set. CLI users are largely unaffected, because profile auto-detection
+  keeps validating a crate against the profile it declares conformance to; the default only applies
+  when no profile can be detected or when `--no-auto-profile` is used.
+
+  To restore the previous behaviour, pin the profile explicitly:
+
+  ```python
+  settings = ValidationSettings(rocrate_uri=..., profile_identifier='ro-crate-1.1')
+  ```
+
+  ```bash
+  rocrate-validator validate -p ro-crate-1.1 /path/to/crate
+  ```
+
+### 🔧 Changed
+
+- refactor(profiles): resolve a bare profile token (e.g. `ro-crate`) to the highest available
+  version consistently. `services.get_profile()` previously returned the first match in load order
+  (`ro-crate-1.1`) while the validation context already selected the highest version
+  (`ro-crate-1.2`); both now go through `Profile.resolve_in_list()`. Version components are compared
+  numerically, so e.g. `1.10` correctly sorts after `1.9`.
+- refactor(validation): record the resolved profile identifier back into the validation settings, so
+  that downstream consumers (e.g. the statistics) agree on which profile was actually used.
+
 ## [0.11.3] - 2026-07-28
 
 Full changelog: https://github.com/crs4/rocrate-validator/compare/0.11.2...0.11.3
