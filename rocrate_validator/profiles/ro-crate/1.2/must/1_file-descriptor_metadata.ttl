@@ -32,7 +32,7 @@ ro-crate:FindROCrateMetadataFileDescriptorEntity a sh:NodeShape ;
             WHERE {
                 ?crate a schema:Dataset .
                 ?this schema:about ?crate .
-                FILTER(contains(str(?this), "ro-crate-metadata.json"))
+                FILTER(STRENDS(str(?this), "ro-crate-metadata.json"))
             }
         """
     ] ;
