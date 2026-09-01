@@ -70,7 +70,7 @@ def test_file_data_entity_target_scales_without_cross_product():
 
     # 500 entities + 250 about-entities + 1 descriptor = 501 triples.
     # Without the root subquery, rdflib would build a cross-product of
-    # 500 × 250 = 125,000 intermediate rows before applying FILTERs.
+    # 500 x 250 = 125,000 intermediate rows before applying FILTERs.
     # With the subquery, the root is pre-computed to a single binding,
     # so the outer pattern processes only 500 combinations.
     data_graph, expected, _ = _build_root_subquery_data_graph(SCHEMA.MediaObject, 500)
@@ -132,7 +132,7 @@ def test_referenced_rocrate_metadata_descriptor_target_scales_without_cross_prod
     query = str(shapes_graph.value(RO_CRATE_1_2.ReferencedROCrateMetadataDescriptorTarget, SH.select))
 
     # 1 crate with 500 subjectOf descriptors + 1 root descriptor.
-    # Without the root subquery, the cross-product would be 500 × 1 = 500
+    # Without the root subquery, the cross-product would be 500 x 1 = 500
     # (small here, but scales with multiple crates in real graphs).
     data_graph = Graph()
     root = URIRef("./")
@@ -153,4 +153,6 @@ def test_referenced_rocrate_metadata_descriptor_target_scales_without_cross_prod
     duration = perf_counter() - started_at
 
     assert actual == expected
-    assert duration < 3.0, f"ReferencedROCrateMetadataDescriptor target took {duration:.2f}s; possible cross-product regression"
+    assert duration < 3.0, (
+        f"ReferencedROCrateMetadataDescriptor target took {duration:.2f}s; possible cross-product regression"
+    )
