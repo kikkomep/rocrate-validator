@@ -34,7 +34,7 @@ ro-crate:WebBasedDataEntity a sh:NodeShape, validator:HiddenShape ;
             SELECT ?this
             WHERE {
                 ?this a schema:MediaObject .
-                FILTER(!contains(str(?this), "ro-crate-metadata.json"))
+                FILTER(!STRENDS(str(?this), "ro-crate-metadata.json"))
                 FILTER regex(str(?this), "^(https?|ftps?)://", "i")
             }
         """
