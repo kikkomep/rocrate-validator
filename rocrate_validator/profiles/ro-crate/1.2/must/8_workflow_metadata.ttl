@@ -20,25 +20,11 @@
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 @prefix validator: <https://github.com/crs4/rocrate-validator/> .
 
-# Selects every SoftwareSourceCode entity (Scripts and Workflows).
-ro-crate:SoftwareSourceCodeTarget a sh:SPARQLTarget ;
-    sh:prefixes ro-crate:sparqlPrefixes ;
-    sh:select """
-        SELECT ?this
-        WHERE {
-            { SELECT DISTINCT ?root WHERE {
-                ?metadatafile schema:about ?root .
-                FILTER(contains(str(?metadatafile), "ro-crate-metadata.json"))
-            } }
-            ?this a schema:SoftwareSourceCode .
-        }
-    """ .
-
 # ---------------------------------------------------------------
 # Identify Script entities
 #
 # A Script is an entity with schema:SoftwareSourceCode in @type
-# that is NOT a Workflow (no bioschemas:ComputationalWorkflow).
+# that is NOT a Workflow (`no bioschemas:ComputationalWorkflow).
 # ---------------------------------------------------------------
 ro-crate:ScriptDefinition a sh:NodeShape, validator:HiddenShape ;
     sh:name "Identify Script entities" ;
@@ -50,10 +36,6 @@ ro-crate:ScriptDefinition a sh:NodeShape, validator:HiddenShape ;
         sh:select """
             SELECT ?this
             WHERE {
-                { SELECT DISTINCT ?root WHERE {
-                    ?metadatafile schema:about ?root .
-                    FILTER(contains(str(?metadatafile), "ro-crate-metadata.json"))
-                } }
                 ?this a schema:SoftwareSourceCode .
                 FILTER NOT EXISTS { ?this a bioschemas:ComputationalWorkflow }
             }
@@ -71,6 +53,9 @@ ro-crate:ScriptDefinition a sh:NodeShape, validator:HiddenShape ;
 #
 # A Workflow is an entity with bioschemas:ComputationalWorkflow
 # in @type.
+# Keep the direct-type SPARQL target instead of sh:targetClass. The latter
+# follows rdfs:subClassOf and could classify an entity as a Workflow without
+# bioschemas:ComputationalWorkflow being explicitly present in its @type.
 # ---------------------------------------------------------------
 ro-crate:WorkflowDefinition a sh:NodeShape, validator:HiddenShape ;
     sh:name "Identify Workflow entities" ;
@@ -82,10 +67,6 @@ ro-crate:WorkflowDefinition a sh:NodeShape, validator:HiddenShape ;
         sh:select """
             SELECT ?this
             WHERE {
-                { SELECT DISTINCT ?root WHERE {
-                    ?metadatafile schema:about ?root .
-                    FILTER(contains(str(?metadatafile), "ro-crate-metadata.json"))
-                } }
                 ?this a bioschemas:ComputationalWorkflow .
             }
         """
@@ -167,7 +148,7 @@ ro-crate:ScriptOrWorkflowRequiredName a sh:NodeShape ;
     sh:name "Script or Workflow: REQUIRED `name`" ;
     sh:description """Scripts and Workflows MUST have a human-readable `name`
         property (RO-Crate 1.2, Workflows and Scripts).""" ;
-    sh:target ro-crate:SoftwareSourceCodeTarget ;
+    sh:targetClass schema:SoftwareSourceCode ;
     sh:property [
         a sh:PropertyShape ;
         sh:name "Script or Workflow: REQUIRED `name` property" ;
