@@ -12,7 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import logging
+import shutil
 
 from rocrate_validator import models
 from tests.ro_crates_v1_2 import WorkflowsScripts
@@ -95,6 +97,25 @@ def test_invalid_script_name():
     """
     do_entity_test(
         __workflows_scripts_crates__.invalid_script_name,
+        models.Severity.REQUIRED,
+        False,
+        profile_identifier="ro-crate-1.2",
+        expected_triggered_requirements=["Script or Workflow: REQUIRED `name`"],
+        expected_triggered_issues=["Scripts and Workflows MUST have a human-readable `name` property"],
+    )
+
+
+def test_script_checks_run_without_metadata_descriptor(tmp_path):
+    """A malformed descriptor must not suppress checks on described entities."""
+    rocrate_path = tmp_path / "crate"
+    shutil.copytree(__workflows_scripts_crates__.invalid_script_name, rocrate_path)
+    metadata_path = rocrate_path / "ro-crate-metadata.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["@graph"] = [entity for entity in metadata["@graph"] if entity.get("@id") != "ro-crate-metadata.json"]
+    metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+    do_entity_test(
+        rocrate_path,
         models.Severity.REQUIRED,
         False,
         profile_identifier="ro-crate-1.2",
