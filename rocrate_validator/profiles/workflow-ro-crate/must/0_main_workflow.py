@@ -38,12 +38,15 @@ class MainWorkflowFileExistence(PyFunctionCheck):
                 context.result.add_issue(f"Main Workflow {main_workflow.id} not found in crate", self)
                 return False
             return True
-        except ValueError:
-            context.result.add_issue(
-                "Unable to check the existence of the main workflow file "
-                "because the metadata file descriptor doesn't contain a `mainEntity`",
-                self,
-            )
+        except (TypeError, ValueError) as error:
+            if str(error) == "no main workflow in metadata file descriptor":
+                message = (
+                    "Unable to check the existence of the main workflow file "
+                    "because the metadata file descriptor doesn't contain a `mainEntity`"
+                )
+            else:
+                message = f"Unable to check the existence of the main workflow file: {error}"
+            context.result.add_issue(message, self)
             if logger.isEnabledFor(logging.DEBUG):
                 logger.exception("Unable to check main workflow file existence")
         return False
