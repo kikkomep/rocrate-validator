@@ -67,7 +67,8 @@ class WebDataEntityRecommendedChecker(PyFunctionCheck):
                 else:
                     context.result.add_issue(f"Web-based Data Entity {entity.id} is not available", self)
                     result = False
-            except Exception as e:
+            # Remote availability checks can fail because of I/O, HTTP responses, or malformed entity values.
+            except (OSError, RuntimeError, TypeError, ValueError) as e:
                 context.result.add_issue(f"Web-based Data Entity {entity.id} is not available: {e}", self)
                 result = False
             if not result and context.fail_fast:

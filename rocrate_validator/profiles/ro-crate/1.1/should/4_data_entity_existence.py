@@ -51,7 +51,8 @@ class DataEntityRecommendedChecker(PyFunctionCheck):
                 if not entity.is_available():
                     context.result.add_issue(f"Data Entity {entity.id} is not available", self)
                     result = False
-            except Exception as e:
+            # Entity access or availability checks can fail for malformed metadata or unavailable local files.
+            except (AttributeError, OSError, TypeError, ValueError) as e:
                 context.result.add_issue(f"Web-based Data Entity {entity.id} is not available: {e}", self)
                 result = False
             if not result and context.fail_fast:

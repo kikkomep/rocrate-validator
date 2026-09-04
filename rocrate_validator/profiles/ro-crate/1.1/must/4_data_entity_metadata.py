@@ -70,7 +70,8 @@ class DataEntityRequiredChecker(PyFunctionCheck):
                         f"The RO-Crate does not include the Data Entity '{entity.id}' as part of its payload", self
                     )
                     result = False
-            except Exception as e:
+            # Entity access or local file checks can fail for malformed metadata or unavailable payload files.
+            except (AttributeError, OSError, TypeError, ValueError) as e:
                 context.result.add_issue(
                     f"Unable to check the the presence of the Data Entity '{entity.id}' within the RO-Crate", self
                 )

@@ -36,6 +36,7 @@ class RootDataEntityRelativeURI(PyFunctionCheck):
                 context.result.add_issue("Root Data Entity URI is not denoted by the string `./`", self)
                 return False
             return True
-        except Exception as e:
+        # Missing or malformed root-entity metadata can make its URI unavailable or invalid.
+        except (AttributeError, TypeError, ValueError) as e:
             context.result.add_issue(f"Error checking Root Data Entity URI: {e!s}", self)
             return False
