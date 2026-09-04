@@ -16,7 +16,7 @@ import atexit
 import sys
 import threading
 from io import StringIO
-from logging import CRITICAL, DEBUG, ERROR, INFO, WARNING, Handler, Logger, StreamHandler
+from logging import CRITICAL, DEBUG, ERROR, INFO, WARNING, Formatter, Handler, Logger, StreamHandler
 from logging import basicConfig as logging_basicConfig
 from typing import Any, Optional
 
@@ -30,21 +30,31 @@ from rich.text import Text
 __module__ = sys.modules[__name__]
 
 
-def get_log_format(level: int):
+def get_log_format(level: int, color: bool = True):
     """Get the log format based on the log level"""
-    log_format = (
-        "[%(log_color)s%(asctime)s%(reset)s] %(levelname)s in %(yellow)s%(module)s%(reset)s: "
-        "%(light_white)s%(message)s%(reset)s"
-    )
-    if level == DEBUG:
+    if color:
         log_format = (
-            "%(log_color)s%(levelname)s%(reset)s:%(yellow)s%(name)s:%(module)s::%(funcName)s%(reset)s "
-            "@ %(light_green)sline: %(lineno)s%(reset)s - %(light_black)s%(message)s%(reset)s"
+            "[%(log_color)s%(asctime)s%(reset)s] %(levelname)s in %(yellow)s%(module)s%(reset)s: "
+            "%(light_white)s%(message)s%(reset)s"
         )
-    return log_format
+        if level == DEBUG:
+            log_format = (
+                "%(log_color)s%(levelname)s%(reset)s:%(yellow)s%(name)s:%(module)s::%(funcName)s%(reset)s "
+                "@ %(light_green)sline: %(lineno)s%(reset)s - %(light_black)s%(message)s%(reset)s"
+            )
+        return log_format
+
+    if level == DEBUG:
+        return "%(levelname)s:%(name)s:%(module)s::%(funcName)s @ line: %(lineno)s - %(message)s"
+    return "[%(asctime)s] %(levelname)s in %(module)s: %(message)s"
 
 
-DEFAULT_SETTINGS: dict[str, Any] = {"enabled": True, "level": WARNING, "format": get_log_format(WARNING)}
+DEFAULT_SETTINGS: dict[str, Any] = {
+    "enabled": True,
+    "level": WARNING,
+    "format": get_log_format(WARNING),
+    "color": True,
+}
 
 
 # _lock is used to serialize access to shared data structures in this module.
@@ -77,7 +87,7 @@ def __print_logs_on_exit__():
     if not log_contents:
         return
     # print the logs
-    console = Console()
+    console = Console(no_color=not __settings__.get("color", True))
     console.print(Padding(Rule("[bold cyan]Log Report[/bold cyan]", style="bold cyan"), (2, 0, 1, 0)))
     console.print(Padding(Text(log_contents), (0, 1)))
     console.print(Padding(Rule("", style="bold cyan"), (0, 0, 2, 0)))
@@ -105,13 +115,18 @@ def __setup_logger__(logger: Logger):
     # set the log level
     logger.setLevel(level)
 
+    use_color = settings.get("color", __settings__.get("color", True))
+
     # configure the logger handler
     ch = __handlers__.get(logger.name)
     if not ch:
         ch = StreamHandler(__log_stream__)
-        ch.setLevel(level)
-        ch.setFormatter(colorlog.ColoredFormatter(get_log_format(level)))
         logger.addHandler(ch)
+        __handlers__[logger.name] = ch
+    ch.setLevel(level)
+    ch.setFormatter(
+        colorlog.ColoredFormatter(get_log_format(level)) if use_color else Formatter(get_log_format(level, color=False))
+    )
 
     # enable/disable the logger
     if settings.get("enabled", __settings__["enabled"]):
@@ -133,7 +148,7 @@ def __create_logger__(name: str) -> Logger:
     return logger
 
 
-def basicConfig(level: int, modules_config: dict | None = None):
+def basicConfig(level: int, modules_config: dict | None = None, color: bool = True):
     """Set the log level and format for the logger"""
     with _lock:
         # set the default log level to ERROR for loggers of other modules
@@ -145,7 +160,8 @@ def basicConfig(level: int, modules_config: dict | None = None):
 
         # set the default log level and format
         __settings__["level"] = level
-        __settings__["format"] = get_log_format(level)
+        __settings__["format"] = get_log_format(level, color=color)
+        __settings__["color"] = color
 
         # set the log level for the modules
         if modules_config:

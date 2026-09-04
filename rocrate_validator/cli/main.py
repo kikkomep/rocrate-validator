@@ -16,6 +16,7 @@ import sys
 
 import rich_click as click
 
+from rocrate_validator.cli.commands.errors import handle_error
 from rocrate_validator.cli.utils import running_in_jupyter
 from rocrate_validator.utils import log as logging
 from rocrate_validator.utils.io_helpers.output.console import Console
@@ -68,6 +69,7 @@ def cli(ctx: click.Context, debug: bool, version: bool, disable_color: bool, no_
     ctx.obj["console"] = console
     ctx.obj["pager"] = SystemPager()
     ctx.obj["interactive"] = interactive
+    ctx.obj["debug"] = debug
 
     try:
         # If the version flag is set, print the version and exit
@@ -75,7 +77,10 @@ def cli(ctx: click.Context, debug: bool, version: bool, disable_color: bool, no_
             console.print(f"[bold]rocrate-validator [cyan]{get_version()}[/cyan][/bold]")
             sys.exit(0)
         # Set the log level
-        logging.basicConfig(level=logging.DEBUG if debug else logging.WARNING)
+        logging.basicConfig(
+            level=logging.DEBUG if debug else logging.WARNING,
+            color=interactive and not disable_color,
+        )
         # If no subcommand is provided, invoke the default command
         if ctx.invoked_subcommand is None:
             # If no subcommand is provided, invoke the default command
@@ -85,13 +90,7 @@ def cli(ctx: click.Context, debug: bool, version: bool, disable_color: bool, no_
         else:
             logger.debug("Command invoked: %s", ctx.invoked_subcommand)
     except Exception as e:
-        console.print(f"\n\n[bold][[red]FAILED[/red]] Unexpected error: {e} !!![/bold]\n", style="white")
-        console.print("""This error may be due to a bug.
-                      Please report it to the issue tracker
-            along with the following stack trace:
-            """)
-        console.print_exception()
-        sys.exit(2)
+        handle_error(e, console, debug=debug)
 
 
 if __name__ == "__main__":
