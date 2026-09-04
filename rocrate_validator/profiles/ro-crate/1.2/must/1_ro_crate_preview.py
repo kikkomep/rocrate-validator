@@ -41,6 +41,7 @@ class ROCrateWebsiteChecker(PyFunctionCheck):
                 return True
             context.result.add_issue("ro-crate-preview.html should include an HTML5 doctype", self)
             return False
-        except Exception as e:
+        # The optional preview may be missing, unreadable, or not UTF-8 encoded.
+        except (OSError, UnicodeDecodeError) as e:
             context.result.add_issue(f"Unable to read ro-crate-preview.html: {e!s}", self)
             return False

@@ -73,7 +73,8 @@ class DataEntityRequiredChecker(PyFunctionCheck):
                         f"The RO-Crate does not include the Data Entity '{entity.id}' as part of its payload", self
                     )
                     result = False
-            except Exception as e:
+            # Entity access or local file checks can fail for malformed metadata or unavailable payload files.
+            except (AttributeError, OSError, TypeError, ValueError) as e:
                 context.result.add_issue(
                     f"Unable to check the the presence of the Data Entity '{entity.id}' within the RO-Crate", self
                 )
@@ -98,7 +99,8 @@ class DetachedDataEntityChecker(PyFunctionCheck):
             return True
         result = True
         root_entity_id = None
-        with contextlib.suppress(Exception):
+        # A malformed descriptor may not expose the root entity; other checks report that input problem.
+        with contextlib.suppress(ValueError):
             root_entity_id = context.ro_crate.metadata.get_root_data_entity().id
         for entity in context.ro_crate.metadata.get_data_entities():
             if root_entity_id and entity.id == root_entity_id:
@@ -128,7 +130,8 @@ class DataEntityIdentifierChecker(PyFunctionCheck):
         root_entity_id = None
         root_entity_is_local = False
         root_entity_absolute_path = None
-        with contextlib.suppress(Exception):
+        # A missing root entity is expected when checking malformed or incomplete descriptor metadata.
+        with contextlib.suppress(ValueError):
             root_data_entity = context.ro_crate.metadata.get_root_data_entity()
             root_entity_id = root_data_entity.id
             root_entity_is_local = (
@@ -267,7 +270,8 @@ class WebDataEntityRequiredChecker(PyFunctionCheck):
                 if not dl.is_downloadable:
                     context.result.add_issue(self._not_downloadable_message(entity.id, dl), self)
                     result = False
-            except Exception as e:
+            # Remote availability checks can fail because of I/O, HTTP responses, or malformed entity values.
+            except (OSError, RuntimeError, TypeError, ValueError) as e:
                 context.result.add_issue(f"Web-based Data Entity '{entity.id}' availability check failed: {e}", self)
                 result = False
             if not result and context.fail_fast:

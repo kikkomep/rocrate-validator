@@ -99,7 +99,8 @@ class WebDataEntityRequiredChecker(PyFunctionCheck):
                 if not dl.is_downloadable:
                     context.result.add_issue(self._not_downloadable_message(entity.id, dl), self)
                     result = False
-            except Exception as e:
+            # Remote availability checks can fail because of I/O, HTTP responses, or malformed entity values.
+            except (OSError, RuntimeError, TypeError, ValueError) as e:
                 context.result.add_issue(f"Web-based Data Entity '{entity.id}' availability check failed: {e}", self)
                 result = False
             if not result and context.fail_fast:
@@ -124,7 +125,8 @@ class WebDataEntityRequiredChecker(PyFunctionCheck):
                         content_value = str(content_size)
                     try:
                         content_int = int(str(content_value))
-                    except Exception:
+                    # External content-size values may be absent or not representable as integers.
+                    except (TypeError, ValueError, OverflowError):
                         content_int = None
                     external_size = context.ro_crate.get_external_file_size(entity.id)
                     if external_size is not None and content_int is not None and content_int != external_size:
@@ -165,7 +167,8 @@ class WebDataEntityRequiredChecker(PyFunctionCheck):
                             msg += f": {dl.reason}"
                         context.result.add_issue(msg, self)
                         result = False
-                except Exception as e:
+                # Remote content checks can fail because of I/O, HTTP responses, or malformed values.
+                except (OSError, RuntimeError, TypeError, ValueError) as e:
                     context.result.add_issue(
                         f"contentUrl '{url_value}' for Web-based Data Entity '{entity.id}' "
                         f"availability check failed: {e}",

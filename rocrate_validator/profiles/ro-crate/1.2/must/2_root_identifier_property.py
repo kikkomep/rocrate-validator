@@ -43,6 +43,7 @@ class RootIdentifierPropertyChecker(PyFunctionCheck):
                     context.result.add_issue("PropertyValue identifiers MUST include a `value`", self)
                     return False
             return True
-        except Exception as e:
+        # Missing or malformed identifier PropertyValue metadata is reported as a failed check.
+        except (AttributeError, TypeError, ValueError) as e:
             context.result.add_issue(f"Error checking identifier PropertyValue: {e!s}", self)
             return False

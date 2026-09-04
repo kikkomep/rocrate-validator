@@ -81,6 +81,7 @@ class CiteAsDownloadableChecker(PyFunctionCheck):
             )
             return True
 
-        except Exception as e:
+        # A malformed cite-as value or failed remote availability check is a validation finding.
+        except (AttributeError, OSError, TypeError, ValueError) as e:
             context.result.add_issue(f"Error checking `cite-as` downloadability: {e!s}", self)
             return False

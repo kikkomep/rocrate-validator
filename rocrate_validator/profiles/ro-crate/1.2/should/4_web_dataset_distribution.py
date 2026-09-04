@@ -71,7 +71,8 @@ class DatasetDistributionChecker(PyFunctionCheck):
                     msg += f": {dl.reason}"
                 context.result.add_issue(msg, self)
                 return False
-        except Exception as e:
+        # Distribution availability checks can fail because of I/O, HTTP responses, or malformed values.
+        except (OSError, RuntimeError, TypeError, ValueError) as e:
             context.result.add_issue(
                 f"Error checking downloadability of distribution '{url}' for Dataset '{entity_id}': {e}", self
             )

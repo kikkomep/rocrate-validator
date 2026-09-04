@@ -103,11 +103,14 @@ class EntityIdentifierFormatChecker(PyFunctionCheck):
         result = True
         ro_crate_metadata = context.ro_crate.metadata
         non_contextual_ids = set()
-        with contextlib.suppress(Exception):
+        # A malformed descriptor may not expose its file-descriptor entity.
+        with contextlib.suppress(ValueError):
             non_contextual_ids.add(ro_crate_metadata.get_file_descriptor_entity().id)
-        with contextlib.suppress(Exception):
+        # A malformed descriptor may not expose the root data entity.
+        with contextlib.suppress(ValueError):
             non_contextual_ids.add(ro_crate_metadata.get_root_data_entity().id)
-        with contextlib.suppress(Exception):
+        # If data entities cannot be enumerated, the dedicated metadata checks report that input problem.
+        with contextlib.suppress(ValueError):
             non_contextual_ids.update(e.id for e in ro_crate_metadata.get_data_entities())
 
         for entity in ro_crate_metadata.as_dict().get("@graph", []):

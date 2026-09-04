@@ -51,7 +51,8 @@ class DetachedROCrateRootDataEntityIdentifierChecker(PyFunctionCheck):
                 return False
 
             return True
-        except Exception as e:
+        # Missing or malformed root-entity metadata can make its identifier unavailable or invalid.
+        except (AttributeError, TypeError, ValueError) as e:
             context.result.add_issue(f"Error checking Root Data Entity @id: {e!s}", self)
             return False
 
@@ -96,7 +97,8 @@ class RootDataEntityCiteAsIdentifierChecker(PyFunctionCheck):
                 return False
 
             return True
-        except Exception as e:
+        # A malformed cite-as reference or root entity is reported as a failed identifier check.
+        except (AttributeError, TypeError, ValueError) as e:
             context.result.add_issue(f"Error checking Root Data Entity `cite-as` reference: {e!s}", self)
             return False
 
@@ -169,6 +171,7 @@ class RootDataEntityPersistentIdentifierChecker(PyFunctionCheck):
                     context.result.add_issue(msg, self)
                     result = False
             return result
-        except Exception as e:
+        # Identifier resolution can fail because metadata is malformed or the remote resource is unavailable.
+        except (AttributeError, OSError, TypeError, ValueError) as e:
             context.result.add_issue(f"Error checking Root Data Entity identifier resolution: {e!s}", self)
             return False

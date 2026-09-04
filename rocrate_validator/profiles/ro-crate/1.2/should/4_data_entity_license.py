@@ -104,7 +104,8 @@ class DataEntityLicenseDivergenceChecker(PyFunctionCheck):
         root_entity = None
         try:
             root_entity = context.ro_crate.metadata.get_root_data_entity()
-        except Exception:
+        # A missing root entity is expected for incomplete metadata; the license check has nothing to compare.
+        except ValueError:
             return True
         if root_entity is None:
             return True

@@ -42,6 +42,7 @@ class RootDataEntityIdentifierChecker(PyFunctionCheck):
                 self,
             )
             return False
-        except Exception as e:
+        # Missing or malformed root-entity metadata can make its identifier unavailable or invalid.
+        except (AttributeError, TypeError, ValueError) as e:
             context.result.add_issue(f"Error checking Root Data Entity @id: {e!s}", self)
             return False

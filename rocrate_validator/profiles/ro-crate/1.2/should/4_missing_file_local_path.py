@@ -103,7 +103,8 @@ class MissingFileLocalPathChecker(PyFunctionCheck):
         if context.ro_crate.is_detached() or context.settings.metadata_only:
             return True
         root_entity_id = None
-        with contextlib.suppress(Exception):
+        # A malformed descriptor may not expose the root entity; other checks report that input problem.
+        with contextlib.suppress(ValueError):
             root_entity_id = context.ro_crate.metadata.get_root_data_entity().id
         result = True
         for entity in context.ro_crate.metadata.get_data_entities(exclude_web_data_entities=True):

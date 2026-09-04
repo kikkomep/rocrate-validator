@@ -78,7 +78,8 @@ class ReferencedROCrateSignpostingCiteAsChecker(PyFunctionCheck):
         result = True
         try:
             root = context.ro_crate.metadata.get_root_data_entity()
-        except Exception:
+        # A missing root entity means there is no local crate context for this comparison.
+        except ValueError:
             return True
 
         for entity in context.ro_crate.metadata.get_dataset_entities():
