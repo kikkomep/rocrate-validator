@@ -23,10 +23,13 @@ from rocrate_validator.constants import HTTP_STATUS_OK
 from rocrate_validator.models import ValidationContext
 from rocrate_validator.requirements.python import PyFunctionCheck, check, requirement
 from rocrate_validator.utils import log as logging
-from rocrate_validator.utils.http import HttpRequester
+from rocrate_validator.utils.http import HttpRequester, OfflineCacheMissError
 
 # set up logging
 logger = logging.getLogger(__name__)
+
+_EXPECTED_METADATA_ERRORS = (AssertionError, AttributeError, KeyError, TypeError, ValueError)
+_EXPECTED_REMOTE_CONTEXT_ERRORS = (*_EXPECTED_METADATA_ERRORS, OSError, RuntimeError)
 
 
 @requirement(name="File Descriptor existence")
@@ -59,7 +62,7 @@ class FileDescriptorExistence(PyFunctionCheck):
             message = f"file descriptor {context.rel_fd_path} is empty"
             context.result.add_issue(message, self)
             return False
-        if context.ro_crate.metadata.size == 0:
+        if context.ro_crate.get_file_size(context.rel_fd_path) == 0:
             context.result.add_issue(f'RO-Crate "{context.rel_fd_path}" file descriptor is empty', self)
             return False
         return True
@@ -89,7 +92,8 @@ class FileDescriptorJsonFormat(PyFunctionCheck):
             # The metadata cannot be parsed: abort to avoid false positives downstream.
             context.abort_validation(f"file descriptor is not valid JSON: {e}")
             return False
-        except Exception:
+        # Malformed or incomplete descriptor metadata is reported as a failed format check.
+        except _EXPECTED_METADATA_ERRORS:
             context.result.add_issue(
                 f'RO-Crate file descriptor "{context.rel_fd_path}" is not in the correct format', self
             )
@@ -187,7 +191,11 @@ class FileDescriptorJsonLdFormat(PyFunctionCheck):
                 a valid JSON-LD context: it is not a dictionary"
             )
             return True
-        except Exception:
+        # Let the validation context apply its configured offline-cache policy.
+        except OfflineCacheMissError:
+            raise
+        # HTTP/context response errors are validation findings, not validator failures.
+        except _EXPECTED_REMOTE_CONTEXT_ERRORS:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.exception("Error validating JSON-LD context is a dictionary")
         return False
@@ -227,7 +235,8 @@ class FileDescriptorJsonLdFormat(PyFunctionCheck):
 
             # Check if the context is valid
             return self.__check_contexts__(context, json_dict["@context"])
-        except Exception:
+        # Missing or incorrectly typed JSON-LD metadata makes this check fail.
+        except _EXPECTED_METADATA_ERRORS:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.exception("Error extracting @context from file descriptor")
         return False
@@ -320,7 +329,8 @@ class FileDescriptorJsonLdFormat(PyFunctionCheck):
                     if fail_fast:
                         return False
             return result
-        except Exception:
+        # A malformed graph cannot be classified as flattened, so report the check failure.
+        except _EXPECTED_METADATA_ERRORS:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.exception("Error flattening JSON-LD file descriptor")
         return False
@@ -338,9 +348,11 @@ class FileDescriptorJsonLdFormat(PyFunctionCheck):
                         "file descriptor does not contain the @id attribute",
                         self,
                     )
+                    context.abort_validation("file descriptor entity does not contain the @id attribute")
                     return False
             return True
-        except Exception:
+        # Missing or malformed graph entries are descriptor-format violations.
+        except _EXPECTED_METADATA_ERRORS:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.exception("Error validating @id property of file descriptor entities")
         return False
@@ -360,7 +372,8 @@ class FileDescriptorJsonLdFormat(PyFunctionCheck):
                     )
                     return False
             return True
-        except Exception:
+        # Missing or malformed graph entries are descriptor-format violations.
+        except _EXPECTED_METADATA_ERRORS:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.exception("Error validating @type property of file descriptor entities")
         return False
@@ -451,7 +464,11 @@ class FileDescriptorJsonLdFormat(PyFunctionCheck):
             try:
                 context_keys = self.__get_context_keys__(jsonld_context)
                 logger.debug(f"{context_keys}")
-            except Exception as e:
+            # Let the validation context apply its configured offline-cache policy.
+            except OfflineCacheMissError:
+                raise
+            # A remote context that cannot be read or parsed makes compaction invalid.
+            except _EXPECTED_REMOTE_CONTEXT_ERRORS as e:
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.exception("Error getting context keys from JSON-LD")
                 context.result.add_issue(str(e), self)
@@ -482,7 +499,8 @@ class FileDescriptorJsonLdFormat(PyFunctionCheck):
                 return False
 
             return True
-        except Exception as e:
+        # Malformed descriptor metadata is reported as a failed compaction check.
+        except _EXPECTED_METADATA_ERRORS as e:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.exception("Unexpected error during file descriptor validation")
             context.result.add_issue(f"Unexpected error: {e}", self)
