@@ -26,7 +26,7 @@ from rocrate_validator.constants import (
     PROFILE_FILE_EXTENSIONS,
     PROFILE_SPECIFICATION_FILE,
 )
-from rocrate_validator.errors import ValidationExecutionError
+from rocrate_validator.errors import ROCrateMetadataNotFoundError, ValidationExecutionError
 from rocrate_validator.events import EventType
 from rocrate_validator.models._logging import logger
 from rocrate_validator.models.severity import (
@@ -34,7 +34,6 @@ from rocrate_validator.models.severity import (
     RequirementLevel,
     Severity,
 )
-from rocrate_validator.utils import log as logging
 from rocrate_validator.utils.python_helpers import (
     get_requirement_name_from_file,
 )
@@ -232,6 +231,10 @@ class Requirement(ABC):
                 # This is a malformed-input problem (reported as an ad-hoc issue by the
                 # dedicated "File Descriptor JSON format" check), not a validator bug.
                 logger.debug("Skipping check %s: file descriptor is not valid JSON: %s", check, e)
+            except (FileNotFoundError, ROCrateMetadataNotFoundError) as e:
+                # A missing descriptor/metadata graph is an input problem reported by
+                # the dedicated descriptor checks, not an implementation failure.
+                logger.debug("Skipping check %s: validation input is unavailable: %s", check, e)
             except ValidationExecutionError:
                 # An engine-level failure means validation did not complete.  Do not
                 # turn it into a warning and accidentally return a clean result.
@@ -240,10 +243,13 @@ class Requirement(ABC):
                 if context.maybe_warn_offline_cache_miss(e):
                     logger.debug("Offline cache miss during check %s: %s", check, e)
                 else:
-                    logger.warning("Unexpected error during check %s.  Exception: %s", check, e)
-                    logger.warning("Consider reporting this as a bug.")
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.exception("Unhandled exception during check execution", exc_info=e)
+                    check_path = str(check.requirement.path) if check.requirement.path else check.identifier
+                    raise ValidationExecutionError(
+                        message=(
+                            f"Unexpected error while executing check '{check.identifier}': {type(e).__name__}: {e}"
+                        ),
+                        path=check_path,
+                    ) from e
             # Stop running further checks once the metadata is known to be unusable.
             if context.aborted:
                 break
@@ -432,14 +438,7 @@ class RequirementLoader:
         # Ensure known requirement modules are imported so subclasses are registered.
         for requirement_type in ("python", "shacl"):
             module_name = f"rocrate_validator.requirements.{requirement_type}"
-            try:
-                importlib.import_module(module_name)
-            except Exception:
-                logger.debug(
-                    "Unable to import requirement module: %s",
-                    module_name,
-                    exc_info=True,
-                )
+            importlib.import_module(module_name)
 
         def all_subclasses(
             base_class: type[Requirement],
@@ -536,6 +535,7 @@ class RequirementCheck(ABC):
         level: RequirementLevel | None = LevelCollection.REQUIRED,
         description: str | None = None,
         hidden: bool | None = None,
+        *,
         deactivated: bool = False,
     ):
         self._requirement: Requirement = requirement
