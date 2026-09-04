@@ -17,12 +17,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from rdflib import Literal, Namespace
+from rdflib import Graph, Literal, Namespace
 
 from rocrate_validator.constants import DEFAULT_PROFILE_IDENTIFIER, SHACL_NS
 from rocrate_validator.errors import DuplicateRequirementCheck, InvalidProfilePath, ProfileSpecificationError
 from rocrate_validator.models import URI, Profile, ValidationContext, ValidationSettings, Validator
 from rocrate_validator.requirements.shacl.checks import SHACLCheck
+from rocrate_validator.requirements.shacl.errors import SHACLValidationError
 from rocrate_validator.requirements.shacl.models import ShapesRegistry
 from tests.ro_crates import InvalidFileDescriptorEntity, ValidROC
 
@@ -297,7 +298,7 @@ def test_load_valid_profile_with_override_on_inherited_profile(fake_profiles_pat
     assert len(requirements_checks) == 3, "The number of requirements should be 2"
 
 
-def test_zero_shape_target_profile_triggers_pyshacl_run(fake_profiles_path: str):
+def test_zero_shape_target_profile_triggers_pyshacl_run(monkeypatch, fake_profiles_path: str):
     """Regression test for the 0-shape profile bug:
     when the target profile has no SHACL checks of its own,
     Validator must still drive a single pyshacl run
@@ -305,6 +306,7 @@ def test_zero_shape_target_profile_triggers_pyshacl_run(fake_profiles_path: str)
     Without the fix in `Validator.__ensure_target_shacl_run__`,
     no SHACLCheck would be recorded as executed for the wrapper target."""
 
+    monkeypatch.setattr(ValidationContext, "data_graph", property(lambda self: Graph()))
     settings = ValidationSettings(
         profiles_path=Path(fake_profiles_path),
         profile_identifier="c-wrapper",
@@ -321,6 +323,52 @@ def test_zero_shape_target_profile_triggers_pyshacl_run(fake_profiles_path: str)
         "c-wrapper target. None recorded — the zero-shape pyshacl run was "
         "skipped."
     )
+
+
+def test_pyshacl_engine_failure_is_not_silenced(monkeypatch, fake_profiles_path: str):
+    """A pySHACL crash must abort validation instead of producing a clean result."""
+
+    def fail_validation(*args, **kwargs):
+        raise ImportError("cannot import name 'ConjunctiveLike' from 'pyshacl.consts'")
+
+    monkeypatch.setattr(ValidationContext, "data_graph", property(lambda self: Graph()))
+    monkeypatch.setattr("rocrate_validator.requirements.shacl.validator.pyshacl.validate", fail_validation)
+    settings = ValidationSettings(
+        profiles_path=Path(fake_profiles_path),
+        profile_identifier="c-deactivated",
+        rocrate_uri=URI(ValidROC().wrroc_paper),
+        enable_profile_inheritance=True,
+        allow_requirement_check_override=True,
+        disable_check_for_duplicates=True,
+    )
+
+    with pytest.raises(SHACLValidationError, match="ConjunctiveLike") as exc_info:
+        Validator(settings).validate()
+
+    assert isinstance(exc_info.value.__cause__, ImportError)
+
+
+def test_pyshacl_engine_failure_in_zero_shape_finalizer_is_not_silenced(monkeypatch, fake_profiles_path: str):
+    """The forced SHACL run for an inheritance-only target must also fail closed."""
+
+    def fail_validation(*args, **kwargs):
+        raise ImportError("cannot import name 'ConjunctiveLike' from 'pyshacl.consts'")
+
+    monkeypatch.setattr(ValidationContext, "data_graph", property(lambda self: Graph()))
+    monkeypatch.setattr("rocrate_validator.requirements.shacl.validator.pyshacl.validate", fail_validation)
+    settings = ValidationSettings(
+        profiles_path=Path(fake_profiles_path),
+        profile_identifier="c-wrapper",
+        rocrate_uri=URI(ValidROC().wrroc_paper),
+        enable_profile_inheritance=True,
+        allow_requirement_check_override=True,
+        disable_check_for_duplicates=True,
+    )
+
+    with pytest.raises(SHACLValidationError, match="ConjunctiveLike") as exc_info:
+        Validator(settings).validate()
+
+    assert isinstance(exc_info.value.__cause__, ImportError)
 
 
 def test_profile_parents(check_overriding_profiles_path: str):
