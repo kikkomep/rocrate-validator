@@ -34,6 +34,7 @@ from rocrate_validator.constants import (
     VALID_INFERENCE_OPTIONS_TYPES,
 )
 from rocrate_validator.models import Profile, RequirementCheck, Severity, ValidationContext, ValidationResult
+from rocrate_validator.requirements.shacl.errors import SHACLValidationError
 from rocrate_validator.requirements.shacl.models import ShapesRegistry
 from rocrate_validator.requirements.shacl.utils import make_uris_relative, map_severity
 from rocrate_validator.utils import log as logging
@@ -466,22 +467,28 @@ class SHACLValidator:
             _inject_default_prefixes(self._shapes_graph)
 
         # validate the data graph using pyshacl.validate
-        conforms, results_graph, results_text = pyshacl.validate(
-            data_graph,
-            shacl_graph=self.shapes_graph,
-            ont_graph=self.ont_graph,
-            inference=inference or ("owlrl" if self.ont_graph else None),
-            inplace=inplace,
-            abort_on_first=abort_on_first,
-            allow_infos=allow_infos,
-            allow_warnings=allow_warnings,
-            meta_shacl=meta_shacl,
-            iterate_rules=iterate_rules,
-            advanced=advanced,
-            js=False,
-            debug=False,
-            **kwargs,
-        )
+        try:
+            conforms, results_graph, results_text = pyshacl.validate(
+                data_graph,
+                shacl_graph=self.shapes_graph,
+                ont_graph=self.ont_graph,
+                inference=inference or ("owlrl" if self.ont_graph else None),
+                inplace=inplace,
+                abort_on_first=abort_on_first,
+                allow_infos=allow_infos,
+                allow_warnings=allow_warnings,
+                meta_shacl=meta_shacl,
+                iterate_rules=iterate_rules,
+                advanced=advanced,
+                js=False,
+                debug=False,
+                **kwargs,
+            )
+        except Exception as e:
+            version = getattr(pyshacl, "__version__", "unknown")
+            raise SHACLValidationError(
+                message=(f"SHACL validation could not be executed by pySHACL {version}: {type(e).__name__}: {e}")
+            ) from e
         # log the validation results
         logger.debug("pyshacl.validate result: Conforms: %r", conforms)
         logger.debug("pyshacl.validate result: Results Graph: %r", results_graph)

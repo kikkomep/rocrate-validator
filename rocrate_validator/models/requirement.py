@@ -26,6 +26,7 @@ from rocrate_validator.constants import (
     PROFILE_FILE_EXTENSIONS,
     PROFILE_SPECIFICATION_FILE,
 )
+from rocrate_validator.errors import ValidationExecutionError
 from rocrate_validator.events import EventType
 from rocrate_validator.models._logging import logger
 from rocrate_validator.models.severity import (
@@ -231,6 +232,10 @@ class Requirement(ABC):
                 # This is a malformed-input problem (reported as an ad-hoc issue by the
                 # dedicated "File Descriptor JSON format" check), not a validator bug.
                 logger.debug("Skipping check %s: file descriptor is not valid JSON: %s", check, e)
+            except ValidationExecutionError:
+                # An engine-level failure means validation did not complete.  Do not
+                # turn it into a warning and accidentally return a clean result.
+                raise
             except Exception as e:
                 if context.maybe_warn_offline_cache_miss(e):
                     logger.debug("Offline cache miss during check %s: %s", check, e)
