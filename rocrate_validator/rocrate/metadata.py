@@ -48,7 +48,7 @@ class ROCrateMetadata:
     def size(self) -> int:
         try:
             return len(self.as_json())
-        except Exception:
+        except OSError:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.exception("Error computing entity JSON size")
             return 0
@@ -82,9 +82,9 @@ class ROCrateMetadata:
             if not isinstance(result, list):
                 result = [result]
             return [_.id for _ in result]
-        except Exception:
+        except ValueError:
             if logger.isEnabledFor(logging.DEBUG):
-                logger.exception("Error getting entity image")
+                logger.exception("Root data entity is not available")
             return None
 
     def get_main_workflow(self) -> ROCrateEntity:
@@ -134,9 +134,9 @@ class ROCrateMetadata:
             if not isinstance(result, list):
                 result = [result]
             return [_.id for _ in result]
-        except Exception:
+        except ValueError:
             if logger.isEnabledFor(logging.DEBUG):
-                logger.exception("Error getting entity identifiers by type")
+                logger.exception("File descriptor entity is not available")
             return None
 
     def as_json(self) -> str:
