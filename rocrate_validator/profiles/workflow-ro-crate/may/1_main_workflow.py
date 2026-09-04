@@ -44,7 +44,9 @@ class WorkflowFilesExistence(PyFunctionCheck):
                 context.result.add_issue(f"Workflow diagram '{image.id}' not found in crate", self)
                 return False
             return True
-        except Exception:
+        # Missing or malformed workflow metadata, or an unavailable image, is a validation finding.
+        except (AttributeError, TypeError, ValueError, OSError) as e:
+            context.result.add_issue(f"Unable to check the workflow diagram: {e}", self)
             if logger.isEnabledFor(logging.DEBUG):
                 logger.exception("Unexpected error checking main workflow image existence")
             return False
@@ -65,7 +67,9 @@ class WorkflowFilesExistence(PyFunctionCheck):
                 )
                 return False
             return True
-        except Exception:
+        # Missing or malformed workflow metadata, or an unavailable description, is a validation finding.
+        except (AttributeError, TypeError, ValueError, OSError) as e:
+            context.result.add_issue(f"Unable to check the workflow description: {e}", self)
             if logger.isEnabledFor(logging.DEBUG):
                 logger.exception("Unexpected error checking workflow description existence")
             return False
