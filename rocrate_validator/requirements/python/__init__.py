@@ -137,7 +137,8 @@ class PyRequirement(Requirement):
                 try:
                     # `name`/`severity` are attributes attached dynamically by the @check decorator
                     check_name = cast("Any", member).name.strip()
-                except Exception:
+                # Checks without decorator metadata fall back to the discovered member name.
+                except AttributeError:
                     check_name = name.strip()
                 check_description = member.__doc__.strip() if member.__doc__ else ""
                 # init the check with the requirement level
@@ -145,7 +146,8 @@ class PyRequirement(Requirement):
                 try:
                     severity = cast("Any", member).severity
                     logger.debug("Severity set for check '%r' from decorator: %r", check_name, severity)
-                except Exception:
+                # Checks without a decorator severity use the requirement-level default below.
+                except AttributeError:
                     logger.debug(f"No severity set for check '{check_name}' from decorator.")
                 if not severity:
                     logger.debug(
