@@ -198,12 +198,8 @@ class SHACLValidationContext(ValidationContext):
 
         :return: The @base value if found, None otherwise
         """
-        try:
-            metadata_dict = self.ro_crate.metadata.as_dict()
-            return extract_base_from_jsonld(metadata_dict)
-        except Exception as e:
-            logger.debug("Unable to extract @base from data graph metadata: %s", e)
-            return None
+        metadata_dict = self.ro_crate.metadata.as_dict()
+        return extract_base_from_jsonld(metadata_dict)
 
     def __load_ontology_graph__(
         self, profile_path: Path, ontology_filename: str = DEFAULT_ONTOLOGY_FILE
