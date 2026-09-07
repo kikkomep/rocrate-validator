@@ -12,9 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import logging
 
 from rocrate_validator import models
+from rocrate_validator.rocrate.plain import ROCrateLocalFolder
 from tests.ro_crates_v1_2 import MetadataDocument, MetadataDocumentFormat
 from tests.shared import do_entity_test
 
@@ -37,6 +39,33 @@ def test_not_utf8():
         expected_triggered_requirements=["File Descriptor UTF-8 encoding"],
         expected_triggered_issues=['RO-Crate file descriptor "ro-crate-metadata.json" is not UTF-8 encoded'],
     )
+
+
+def test_utf8_check_is_skipped_for_metadata_dict(monkeypatch, tmp_path):
+    """Metadata-only validation must not read a file descriptor from the CWD."""
+    crate_path = __metadata_document_crates__.valid_context_reference
+    with (crate_path / "ro-crate-metadata.json").open(encoding="utf-8") as stream:
+        metadata_dict = json.load(stream)
+
+    descriptor_reads = []
+    original_get_file_content = ROCrateLocalFolder.get_file_content
+
+    def track_descriptor_reads(crate, path, binary_mode=True):
+        if path.name == "ro-crate-metadata.json":
+            descriptor_reads.append((path, binary_mode))
+        return original_get_file_content(crate, path, binary_mode)
+
+    monkeypatch.setattr(ROCrateLocalFolder, "get_file_content", track_descriptor_reads)
+    monkeypatch.chdir(tmp_path)
+    do_entity_test(
+        crate_path,
+        models.Severity.REQUIRED,
+        True,
+        profile_identifier="ro-crate-1.2",
+        metadata_dict=metadata_dict,
+        metadata_only=True,
+    )
+    assert descriptor_reads == []
 
 
 def test_not_json():
