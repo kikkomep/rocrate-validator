@@ -112,10 +112,10 @@ class FileDescriptorEncodingCheck(PyFunctionCheck):
                 return True
             raw_data.decode("utf-8")
             return True
-        except Exception:
+        except UnicodeDecodeError:
             context.result.add_issue(f'RO-Crate file descriptor "{context.rel_fd_path}" is not UTF-8 encoded', self)
             if logger.isEnabledFor(logging.DEBUG):
-                logger.exception("Unexpected error during file descriptor validation")
+                logger.debug("RO-Crate file descriptor is not UTF-8 encoded", exc_info=True)
             return False
 
 
