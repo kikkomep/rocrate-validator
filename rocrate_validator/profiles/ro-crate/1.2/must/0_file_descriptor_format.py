@@ -101,6 +101,9 @@ class FileDescriptorEncodingCheck(PyFunctionCheck):
         """
         Check if the file descriptor is UTF-8 encoded
         """
+        if context.settings.metadata_only:
+            logger.debug("Skipping file descriptor encoding check in metadata-only mode")
+            return True
         try:
             raw_data = context.ro_crate.get_file_content(
                 Path(context.ro_crate.metadata_descriptor_id), binary_mode=True
