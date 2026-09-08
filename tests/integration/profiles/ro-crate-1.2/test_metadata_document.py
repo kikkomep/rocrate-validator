@@ -92,9 +92,12 @@ def test_missing_descriptor_does_not_emit_unexpected_warnings(monkeypatch, tmp_p
 
     issues = [issue.message for issue in result.get_issues()]
     assert result.passed() is False
-    assert any('file descriptor "ro-crate-metadata.json" is not present' in issue for issue in issues)
+    assert any(
+        issue is not None and 'file descriptor "ro-crate-metadata.json" is not present' in issue for issue in issues
+    )
     assert not any(
-        any(message in issue for message in ("Unexpected error", "Error checking", "not in the correct format"))
+        issue is not None
+        and any(message in issue for message in ("Unexpected error", "Error checking", "not in the correct format"))
         for issue in issues
     )
     assert requirement_logger.warning.call_count == 0
@@ -167,8 +170,10 @@ def test_invalid_context_reference():
         profile_identifier="ro-crate-1.2",
         expected_triggered_requirements=["File Descriptor JSON-LD format"],
         expected_triggered_issues=[
-            'RO-Crate file descriptor "ro-crate-metadata.json" '
-            'does not reference the required context "https://w3id.org/ro/crate/1.2/context"'
+            (
+                'RO-Crate file descriptor "ro-crate-metadata.json" '
+                'does not reference the required context "https://w3id.org/ro/crate/1.2/context"'
+            )
         ],
     )
 
@@ -238,8 +243,10 @@ def test_not_described_contextual_entity():
         profile_identifier="ro-crate-1.2",
         expected_triggered_requirements=["Contextual Entity RECOMMENDED description"],
         expected_triggered_issues=[
-            "Contextual entities that are referenced by other entities SHOULD be "
-            "described in the same @graph, with at least an RDF type specified."
+            (
+                "Contextual entities that are referenced by other entities SHOULD be "
+                "described in the same @graph, with at least an RDF type specified."
+            )
         ],
     )
 
