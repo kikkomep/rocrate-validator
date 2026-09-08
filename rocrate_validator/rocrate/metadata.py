@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from rdflib import Graph
 
+from rocrate_validator.errors import ROCrateMetadataNotFoundError
 from rocrate_validator.utils import log as logging
 
 from .entity import ROCrateEntity
@@ -139,11 +140,19 @@ class ROCrateMetadata:
                 logger.exception("Error getting entity identifiers by type")
             return None
 
+    def __get_file_content__(self, binary_mode: bool) -> str | bytes:
+        """Read the metadata descriptor and identify a missing descriptor explicitly."""
+        try:
+            return self.ro_crate.get_file_content(Path(self.ro_crate.metadata_descriptor_id), binary_mode=binary_mode)
+        except FileNotFoundError as e:
+            raise ROCrateMetadataNotFoundError(
+                message=str(e),
+                path=self.ro_crate.metadata_descriptor_id,
+            ) from e
+
     def as_json(self) -> str:
         if not self._json:
-            self._json = cast(
-                "str", self.ro_crate.get_file_content(Path(self.ro_crate.metadata_descriptor_id), binary_mode=False)
-            )
+            self._json = cast("str", self.__get_file_content__(binary_mode=False))
         return self._json
 
     def as_dict(self) -> dict[Any, Any]:
