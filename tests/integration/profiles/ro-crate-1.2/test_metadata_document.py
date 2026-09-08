@@ -14,9 +14,16 @@
 
 import json
 import logging
+from unittest.mock import MagicMock
 
-from rocrate_validator import models
+import pytest
+
+from rocrate_validator import models, services
+from rocrate_validator.errors import ROCrateMetadataNotFoundError
+from rocrate_validator.models import requirement as requirement_module
+from rocrate_validator.requirements.shacl import requirements as shacl_requirements_module
 from rocrate_validator.rocrate.plain import ROCrateLocalFolder
+from rocrate_validator.utils.uri import URI
 from tests.ro_crates_v1_2 import MetadataDocument, MetadataDocumentFormat
 from tests.shared import do_entity_test
 
@@ -66,6 +73,43 @@ def test_utf8_check_is_skipped_for_metadata_dict(monkeypatch, tmp_path):
         metadata_only=True,
     )
     assert descriptor_reads == []
+
+
+def test_missing_descriptor_does_not_emit_unexpected_warnings(monkeypatch, tmp_path):
+    """Checks depending on metadata should defer to the descriptor checks."""
+    requirement_logger = MagicMock()
+    shacl_logger = MagicMock()
+    monkeypatch.setattr(requirement_module, "logger", requirement_logger)
+    monkeypatch.setattr(shacl_requirements_module, "logger", shacl_logger)
+
+    result = services.validate(
+        models.ValidationSettings(
+            rocrate_uri=URI(tmp_path),
+            profile_identifier="ro-crate-1.2",
+            requirement_severity=models.Severity.OPTIONAL,
+        )
+    )
+
+    issues = [issue.message for issue in result.get_issues()]
+    assert result.passed() is False
+    assert any('file descriptor "ro-crate-metadata.json" is not present' in issue for issue in issues)
+    assert not any(
+        any(message in issue for message in ("Unexpected error", "Error checking", "not in the correct format"))
+        for issue in issues
+    )
+    assert requirement_logger.warning.call_count == 0
+    assert shacl_logger.warning.call_count == 0
+
+
+def test_missing_descriptor_raises_specific_metadata_error(tmp_path):
+    """Reading a missing descriptor must preserve its metadata-specific cause."""
+    crate = ROCrateLocalFolder(tmp_path)
+
+    with pytest.raises(ROCrateMetadataNotFoundError) as error:
+        crate.metadata.as_dict()
+
+    assert error.value.path == "ro-crate-metadata.json"
+    assert isinstance(error.value.__cause__, FileNotFoundError)
 
 
 def test_not_json():
