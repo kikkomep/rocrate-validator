@@ -15,7 +15,6 @@
 import json
 import re
 from http import HTTPStatus
-from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin
 
@@ -105,9 +104,7 @@ class FileDescriptorEncodingCheck(PyFunctionCheck):
             logger.debug("Skipping file descriptor encoding check in metadata-only mode")
             return True
         try:
-            raw_data = context.ro_crate.get_file_content(
-                Path(context.ro_crate.metadata_descriptor_id), binary_mode=True
-            )
+            raw_data = context.ro_crate.metadata.as_bytes()
             if isinstance(raw_data, str):
                 return True
             raw_data.decode("utf-8")

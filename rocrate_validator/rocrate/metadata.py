@@ -150,6 +150,12 @@ class ROCrateMetadata:
                 path=self.ro_crate.metadata_descriptor_id,
             ) from e
 
+    def as_bytes(self) -> bytes:
+        """Return the raw metadata descriptor content."""
+        if self._dict is not None:
+            return self.as_json().encode("utf-8")
+        return cast("bytes", self.__get_file_content__(binary_mode=True))
+
     def as_json(self) -> str:
         if not self._json:
             self._json = cast("str", self.__get_file_content__(binary_mode=False))
