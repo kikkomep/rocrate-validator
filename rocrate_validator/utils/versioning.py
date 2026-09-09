@@ -18,12 +18,12 @@ import sys
 from importlib import metadata
 from pathlib import Path
 
+from rocrate_validator.constants import PACKAGE_NAME
 from rocrate_validator.utils import log as logging
 from rocrate_validator.utils.config import get_config, get_config_path
 
 # set up logging
 logger = logging.getLogger(__name__)
-PACKAGE_NAME = "roc-validator"
 
 
 def run_git_command(command: list[str], cwd: Path | None = None) -> str | None:
