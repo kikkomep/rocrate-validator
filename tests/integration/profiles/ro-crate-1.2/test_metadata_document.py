@@ -21,6 +21,7 @@ import pytest
 from rocrate_validator import models, services
 from rocrate_validator.errors import ROCrateMetadataNotFoundError
 from rocrate_validator.models import requirement as requirement_module
+from rocrate_validator.models.skipped_check import SkipCategory
 from rocrate_validator.requirements.shacl import requirements as shacl_requirements_module
 from rocrate_validator.rocrate.plain import ROCrateLocalFolder
 from rocrate_validator.utils.uri import URI
@@ -357,3 +358,136 @@ def test_invalid_named_entity_id_format():
         expected_triggered_requirements=["Entity identifier: format recommendations"],
         expected_triggered_issues=["named local entities SHOULD use a '#'-prefixed @id"],
     )
+
+
+# ---------------------------------------------------------------------------
+# Schema.org IRIs: http namespace, not https (MUST) — see #188
+# ---------------------------------------------------------------------------
+
+
+def test_valid_schema_org_iri_protocol():
+    """
+    Crate whose Schema.org IRIs all use the http namespace passes.
+    """
+    do_entity_test(
+        __metadata_document_crates__.valid_schema_org_iri_protocol,
+        models.Severity.REQUIRED,
+        True,
+        profile_identifier="ro-crate-1.2",
+    )
+
+
+def test_invalid_schema_org_type_protocol():
+    """
+    An entity typed with an https Schema.org IRI is reported, naming the http term.
+    """
+    do_entity_test(
+        __metadata_document_crates__.invalid_schema_org_iri_protocol,
+        models.Severity.REQUIRED,
+        False,
+        profile_identifier="ro-crate-1.2",
+        expected_triggered_requirements=["Schema.org @type protocol"],
+        expected_triggered_issues=[
+            "declares the @type 'https://schema.org/Organization'",
+            "MUST be typed 'Organization' (i.e. 'http://schema.org/Organization')",
+        ],
+    )
+
+
+def test_schema_org_type_presence_check_uses_http_namespace():
+    """
+    The existing Schema.org type recommendation must not treat an https IRI as
+    a type from the namespace defined by the RO-Crate context.
+    """
+    do_entity_test(
+        __metadata_document_crates__.invalid_schema_org_iri_protocol,
+        models.Severity.RECOMMENDED,
+        False,
+        profile_identifier="ro-crate-1.2",
+        expected_triggered_requirements=["RO-Crate Metadata Entity: RECOMMENDED properties"],
+        expected_triggered_issues=["RO-Crate Metadata Entity SHOULD include at least one Schema.org type"],
+    )
+
+
+def test_https_schema_org_id_is_allowed():
+    """
+    An https Schema.org IRI used as an @id remains a valid resource identifier.
+    """
+    do_entity_test(
+        __metadata_document_crates__.valid_schema_org_iri_protocol,
+        models.Severity.REQUIRED,
+        True,
+        profile_identifier="ro-crate-1.2",
+        rocrate_entity_patch={"#uuid": {"propertyID": {"@id": "https://schema.org/identifier"}}},
+    )
+
+
+def test_https_entity_id_is_not_recommended():
+    """
+    An entity's own HTTPS Schema.org @id is not a compatibility issue.
+    """
+    with (__metadata_document_crates__.valid_schema_org_iri_protocol / "ro-crate-metadata.json").open(
+        encoding="utf-8"
+    ) as stream:
+        metadata_dict = json.load(stream)
+    metadata_dict["@graph"].append(
+        {
+            "@id": "https://schema.org/StandaloneResource",
+            "@type": "Thing",
+            "name": "Standalone Schema.org resource",
+        }
+    )
+    do_entity_test(
+        __metadata_document_crates__.valid_schema_org_iri_protocol,
+        models.Severity.RECOMMENDED,
+        True,
+        profile_identifier="ro-crate-1.2",
+        metadata_dict=metadata_dict,
+        metadata_only=True,
+    )
+
+
+def test_https_nested_schema_org_id_is_recommended_for_compatibility():
+    """
+    A nested HTTPS Schema.org @id remains valid but emits a compatibility recommendation.
+    """
+    do_entity_test(
+        __metadata_document_crates__.valid_schema_org_iri_protocol,
+        models.Severity.RECOMMENDED,
+        False,
+        profile_identifier="ro-crate-1.2",
+        rocrate_entity_patch={"#uuid": {"propertyID": {"@id": "https://schema.org/identifier"}}},
+        expected_triggered_requirements=["Schema.org @id compatibility"],
+        expected_triggered_issues=[
+            "references the Schema.org IRI 'https://schema.org/identifier' through a nested @id",
+            "SHOULD use 'identifier' (i.e. 'http://schema.org/identifier')",
+        ],
+    )
+
+
+def test_schema_org_iri_protocol_depends_on_context_check():
+    """
+    The Schema.org @type protocol check reasons about what the RO-Crate @context maps,
+    so without a validated @context they must be skipped as a dependency skip,
+    not reported: their message would otherwise rest on a premise that does not hold.
+    """
+    result = services.validate(
+        models.ValidationSettings(
+            rocrate_uri=models.URI(__metadata_document_crates__.invalid_context_reference),
+            requirement_severity=models.Severity.RECOMMENDED,
+            profile_identifier="ro-crate-1.2",
+        )
+    )
+
+    skipped = {
+        detail.check.name: detail
+        for detail in result.skipped_check_details
+        if detail.check.requirement.name in {"Schema.org @type protocol", "Schema.org @id compatibility"}
+    }
+    assert set(skipped) == {
+        "Entity @type MUST use the http Schema.org namespace",
+        "Entity @id references SHOULD use the http Schema.org namespace",
+    }, "the Schema.org protocol checks should be skipped"
+    for detail in skipped.values():
+        assert detail.category is SkipCategory.DEPENDENCY
+        assert "File Descriptor @context property validation" in detail.message
