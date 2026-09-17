@@ -58,8 +58,7 @@ ro-crate:ROCrateMetadataEntityRecommendedType a sh:NodeShape ;
                 FILTER NOT EXISTS {
                     $this a ?schemaType .
                     FILTER (
-                        STRSTARTS(STR(?schemaType), "http://schema.org/") ||
-                        STRSTARTS(STR(?schemaType), "https://schema.org/")
+                        STRSTARTS(STR(?schemaType), "http://schema.org/")
                     )
                 }
             }
