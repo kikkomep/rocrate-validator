@@ -204,7 +204,7 @@ class ValidationResult:
         self._skipped_checks: set[RequirementCheck] = set()
         self._skipped_check_details: dict[str, SkippedCheckDetail] = {}
         # initialize the statistics
-        self._statistics = ValidationStatistics(context.settings)
+        self._statistics = ValidationStatistics(context.settings, context=context)
 
     @property
     def context(self) -> ValidationContext:
