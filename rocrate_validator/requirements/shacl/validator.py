@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any, cast  # pylint: disable=unused-import
 
 import pyshacl
 from rdflib import BNode, Graph, Literal, Namespace
+from rdflib.namespace import RDF
 from rdflib.term import Node, URIRef
 
 if TYPE_CHECKING:
@@ -44,6 +45,7 @@ from rocrate_validator.requirements.shacl.errors import SHACLValidationError
 from rocrate_validator.requirements.shacl.models import ShapesRegistry
 from rocrate_validator.requirements.shacl.utils import make_uris_relative, map_severity
 from rocrate_validator.utils import log as logging
+from rocrate_validator.utils.rdf import rebase_graph
 
 # set up logging
 logger = logging.getLogger(__name__)
@@ -121,8 +123,14 @@ class SHACLValidationContext(ValidationContext):
 
         # pySHACL may mutate supplied graphs while applying inference/rules.
         # Copy the prepared ontology into this run's working graph.
-        self._ontology_graph: Graph = Graph()
-        self._ontology_graph += context.prepared_validation_plan.ontology_graph
+        run_base_mappings = tuple(
+            (prepared, actual) for actual, prepared in context.prepared_base_mappings if actual != prepared
+        )
+        self._run_base_mappings = run_base_mappings
+        self._ontology_graph = rebase_graph(
+            context.prepared_validation_plan.ontology_graph,
+            self._run_base_mappings,
+        )
 
     def __set_current_validation_profile__(self, profile: Profile) -> bool:
         if profile.identifier not in self._processed_profiles:
@@ -130,6 +138,16 @@ class SHACLValidationContext(ValidationContext):
             profile_registry = ShapesRegistry.get_instance(profile)
             profile_shapes = profile_registry.get_shapes()
             profile_shapes_graph = profile_registry.shapes_graph
+            structural_nodes = {
+                subject
+                for subject, predicate, object_ in profile_shapes_graph
+                if str(predicate).startswith(SHACL_NS) or (predicate == RDF.type and str(object_).startswith(SHACL_NS))
+            }
+            profile_shapes_graph = rebase_graph(
+                profile_shapes_graph,
+                self._run_base_mappings,
+                preserve_nodes=structural_nodes,
+            )
             logger.debug("Loaded shapes: %s", profile_shapes)
 
             # enable overriding of checks
