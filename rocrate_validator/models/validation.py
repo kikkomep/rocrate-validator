@@ -28,6 +28,7 @@ from rocrate_validator.events import Event, EventType, Publisher
 from rocrate_validator.models._logging import logger
 from rocrate_validator.models.events import (
     ProfileValidationEvent,
+    RequirementCheckValidationEvent,
     RequirementValidationEvent,
     ValidationEvent,
 )
@@ -295,6 +296,11 @@ class Validator(Publisher):
         result: ValidationResult = self.__current_context__.result
         if isinstance(event, EventType):
             event = Event(event)
+        if isinstance(event, RequirementCheckValidationEvent):
+            event.set_effective_identity(
+                self.__current_context__.effective_check_identifier(event.requirement_check),
+                self.__current_context__.effective_check_profile(event.requirement_check).identifier,
+            )
         result.statistics.update(event, ctx=self.__current_context__)
         return super().notify(event, ctx=self.__current_context__)
 
@@ -686,6 +692,33 @@ class ValidationContext:
         profiles = self.profiles
         assert len(profiles) > 0, "No profiles to validate"
         return self.profiles[-1]
+
+    def is_rule_overlay_source(self, profile: Profile) -> bool:
+        """Return whether ``profile`` is composed into the validation target."""
+        target = self.target_profile
+        return profile == target or profile.uri in target.rule_overlay_of
+
+    def effective_check_identifier(self, check: RequirementCheck) -> str:
+        """Return a context-local identifier without mutating the source check."""
+        if not self.is_rule_overlay_source(check.requirement.profile):
+            return check.identifier
+        identity_check = check
+        if check.requirement.profile == self.target_profile:
+            overlay_overrides = [
+                parent_check
+                for parent_check in check.overrides
+                if parent_check.requirement.profile.uri in self.target_profile.rule_overlay_of
+            ]
+            if len(overlay_overrides) == 1:
+                identity_check = overlay_overrides[0]
+        relative_identifier = identity_check.relative_identifier.split(" ", maxsplit=1)[-1]
+        return f"{self.target_profile.identifier}_{relative_identifier}"
+
+    def effective_check_profile(self, check: RequirementCheck) -> Profile:
+        """Return the reporting profile for a check in this validation."""
+        return (
+            self.target_profile if self.is_rule_overlay_source(check.requirement.profile) else check.requirement.profile
+        )
 
     def get_profile_by_token(self, token: str) -> list[Profile]:
         """

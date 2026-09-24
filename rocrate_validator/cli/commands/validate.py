@@ -719,8 +719,8 @@ def _print_skipped_checks(results: dict[str, ValidationResult], console: Console
     table.add_column("Reason")
     for detail in details:
         table.add_row(
-            Text(detail.check.requirement.profile.identifier, style="cyan"),
-            Text(detail.check.identifier, style=get_severity_color(detail.check.severity)),
+            Text(detail.to_dict()["profile"], style="cyan"),
+            Text(detail.to_dict()["identifier"], style=get_severity_color(detail.check.severity)),
             Text(detail.category.value, style="yellow"),
             Text(f"{detail.check.name}: {detail.message}"),
         )

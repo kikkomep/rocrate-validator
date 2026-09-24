@@ -27,6 +27,7 @@ from rocrate_validator.constants import (
     PROF_NS,
     PROFILE_SPECIFICATION_FILE,
     SCHEMA_ORG_NS,
+    VALIDATOR_NS,
 )
 from rocrate_validator.errors import (
     DuplicateRequirementCheck,
@@ -292,6 +293,17 @@ class Profile:
         return cast("list[str]", self.__get_specification_property__("isTransitiveProfileOf", PROF_NS, pop_first=False))
 
     @property
+    def rule_overlay_of(self) -> list[str]:
+        """
+        Profiles whose validation rules are composed into this profile.
+
+        This implementation relationship is deliberately separate from
+        ``prof:isProfileOf``: ordinary profile inheritance retains its source
+        identity, while overlay rules are reported in the target namespace.
+        """
+        return cast("list[str]", self.__get_specification_property__("ruleOverlayOf", VALIDATOR_NS, pop_first=False))
+
+    @property
     def parents(self) -> list[Profile]:
         """
         The list of profiles that this profile is a profile of
@@ -399,15 +411,34 @@ class Profile:
                 return requirement
         return None
 
-    def get_requirement_check(self, check_name: str) -> RequirementCheck | None:
+    def get_requirement_checks(
+        self,
+        check_name: str,
+        severity: Severity | None = None,
+    ) -> list[RequirementCheck]:
+        """Return checks matching a name and, when provided, a severity."""
+        return [
+            check
+            for requirement in self.requirements
+            for check in requirement.get_checks()
+            if check.name == check_name and (severity is None or check.severity == severity)
+        ]
+
+    def get_requirement_check(
+        self,
+        check_name: str,
+        severity: Severity | None = None,
+    ) -> RequirementCheck | None:
+        """Get the check matching a name and optional severity.
+
+        A check identity must be unique within a profile. Ambiguous lookups fail
+        instead of making override behavior depend on requirement load order.
         """
-        Get the requirement check with the given name
-        """
-        for requirement in self.requirements:
-            check = requirement.get_check(check_name)
-            if check:
-                return check
-        return None
+        checks = self.get_requirement_checks(check_name, severity)
+        if len(checks) > 1:
+            identity = f"{check_name} [{severity.name}]" if severity else check_name
+            raise DuplicateRequirementCheck(identity, self.identifier)
+        return checks[0] if checks else None
 
     @classmethod
     def __get_nested_profiles__(cls, source: str) -> list[str]:

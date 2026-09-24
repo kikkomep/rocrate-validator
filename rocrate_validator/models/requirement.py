@@ -300,6 +300,7 @@ class Requirement(ABC):
         context.result._record_check_result(check, CheckResult.SKIPPED, message, category)
         inherited_reporting_disabled = (
             check.requirement.profile.identifier != context.profile_identifier
+            and not context.is_rule_overlay_source(check.requirement.profile)
             and context.settings.disable_inherited_profiles_issue_reporting
         )
         if not inherited_reporting_disabled:
@@ -378,6 +379,7 @@ class Requirement(ABC):
         skip_event_notify = False
         if (
             check.requirement.profile.identifier != context.profile_identifier
+            and not context.is_rule_overlay_source(check.requirement.profile)
             and context.settings.disable_inherited_profiles_issue_reporting
         ):
             logger.debug(
@@ -822,7 +824,7 @@ class RequirementCheck(ABC):
     def overridden_by(self) -> list[RequirementCheck]:
         overridden_by = []
         for sibling_profile in self.requirement.profile.siblings:
-            check = sibling_profile.get_requirement_check(self.name)
+            check = sibling_profile.get_requirement_check(self.name, self.severity)
             if check:
                 overridden_by.append(check)
         return overridden_by
@@ -831,7 +833,7 @@ class RequirementCheck(ABC):
     def overrides(self) -> list[RequirementCheck]:
         overrides = []
         for parent in self.requirement.profile.parents:
-            check = parent.get_requirement_check(self.name)
+            check = parent.get_requirement_check(self.name, self.severity)
             if check:
                 overrides.append(check)
         return overrides
