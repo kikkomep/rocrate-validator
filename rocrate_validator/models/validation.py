@@ -648,8 +648,14 @@ class ValidationContext:
         if not self.inheritance_enabled:
             return [profile]
 
-        # Set the profiles to validate against as the target profile and its inherited profiles
-        profiles = [*profile.inherited_profiles, profile]
+        # Validate overlay profiles before their sources.  An overlay contains
+        # the checks whose behavior changed locally; those checks must get the
+        # first chance to fail (for example, malformed JSON must be reported by
+        # the target profile before an inherited metadata check parses it).
+        if profile.rule_overlay_of:
+            profiles = [profile, *profile.inherited_profiles]
+        else:
+            profiles = [*profile.inherited_profiles, profile]
 
         # Validate check identities only for profiles participating in this run.
         # Profile listing and discovery may still inspect intentionally invalid
