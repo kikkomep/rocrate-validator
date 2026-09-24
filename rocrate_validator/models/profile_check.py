@@ -1,0 +1,99 @@
+# Copyright (c) 2024-2026 CRS4
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, ClassVar
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from rocrate_validator.models.profile import Profile
+    from rocrate_validator.models.severity import Severity
+
+
+@dataclass(frozen=True)
+class ProfileCheckResult:
+    """Structured result produced by a profile consistency check."""
+
+    check_id: str
+    profile_identifier: str
+    passed: bool
+    message: str
+    details: Mapping[str, str] = field(default_factory=dict)
+
+
+class ProfileCheckFailure(Exception):
+    """Raised when a profile consistency check does not pass."""
+
+    def __init__(self, result: ProfileCheckResult):
+        self.result = result
+        super().__init__(result.message)
+
+
+class ProfileCheck(ABC):
+    """Base class for checks validating a profile definition."""
+
+    identifier: ClassVar[str]
+    description: ClassVar[str]
+
+    @abstractmethod
+    def run(self, profile: Profile) -> ProfileCheckResult:
+        """Run this check against ``profile``."""
+
+
+class UniqueRequirementCheckIdentity(ProfileCheck):
+    """Ensure ``(name, severity)`` identifies at most one check per profile."""
+
+    identifier = "unique-requirement-check-identity"
+    description = "Requirement check names and severities must be unique within a profile"
+
+    def run(self, profile: Profile) -> ProfileCheckResult:
+        seen: set[tuple[str, Severity]] = set()
+        for requirement in profile.requirements:
+            for check in requirement.get_checks():
+                identity = (check.name, check.severity)
+                if identity in seen:
+                    return ProfileCheckResult(
+                        check_id=self.identifier,
+                        profile_identifier=profile.identifier,
+                        passed=False,
+                        message="Duplicate requirement check identity",
+                        details={
+                            "name": check.name,
+                            "severity": check.severity.name,
+                        },
+                    )
+                seen.add(identity)
+        return ProfileCheckResult(
+            check_id=self.identifier,
+            profile_identifier=profile.identifier,
+            passed=True,
+            message="All requirement check identities are unique",
+        )
+
+
+class ProfileCheckSuite:
+    """Run the registered consistency checks for a profile."""
+
+    DEFAULT_CHECKS: ClassVar[tuple[type[ProfileCheck], ...]] = (UniqueRequirementCheckIdentity,)
+
+    def __init__(self, checks: tuple[type[ProfileCheck], ...] | None = None):
+        self._checks = tuple(check() for check in (checks or self.DEFAULT_CHECKS))
+
+    def run(self, profile: Profile) -> tuple[ProfileCheckResult, ...]:
+        """Return one result for every registered profile check."""
+        return tuple(check.run(profile) for check in self._checks)

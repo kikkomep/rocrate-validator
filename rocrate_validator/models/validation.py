@@ -654,8 +654,9 @@ class ValidationContext:
         # Validate check identities only for profiles participating in this run.
         # Profile listing and discovery may still inspect intentionally invalid
         # fixtures without forcing requirement loading.
-        for validation_profile in profiles:
-            validation_profile.validate_requirement_check_identities()
+        if self.settings.validate_profile_checks:
+            for validation_profile in profiles:
+                validation_profile.validate_profile_checks()
 
         # if the check for duplicates is disabled, return the profiles
         if self.disable_check_for_duplicates:

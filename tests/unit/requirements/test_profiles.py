@@ -83,8 +83,8 @@ def test_load_invalid_profile_from_validation_context(fake_profiles_path: str):
 
     # Check if the InvalidProfilePath exception is raised
     with pytest.raises(InvalidProfilePath):
-        profiles = context.profiles
-        logger.debug("The profiles: %r", profiles)
+        # Load the profiles
+        _ = context.profiles
 
 
 def test_profile_detection_error_is_not_silenced(monkeypatch):
@@ -273,8 +273,7 @@ def test_load_invalid_profile_no_override_enabled(fake_profiles_path: str):
 
     with pytest.raises(DuplicateRequirementCheck):
         # Load the profiles
-        profiles = context.profiles
-        logger.debug("The profiles: %r", profiles)
+        _ = context.profiles
 
 
 def test_load_invalid_profile_with_override_on_same_profile(fake_profiles_path: str):
@@ -296,15 +295,14 @@ def test_load_invalid_profile_with_override_on_same_profile(fake_profiles_path: 
 
     with pytest.raises(DuplicateRequirementCheck):
         # Load the profiles
-        profiles = context.profiles
-        logger.debug("The profiles: %r", profiles)
+        _ = context.profiles
 
 
 def test_validation_rejects_duplicate_check_identity_with_overrides_enabled(fake_profiles_path: str):
     settings = ValidationSettings(
-        profiles_path=fake_profiles_path,
+        profiles_path=Path(fake_profiles_path),
         profile_identifier="invalid-duplicated-shapes",
-        rocrate_uri=ValidROC().wrroc_paper,
+        rocrate_uri=URI(ValidROC().wrroc_paper),
         enable_profile_inheritance=True,
         allow_requirement_check_override=True,
     )
@@ -351,6 +349,22 @@ def test_check_name_and_severity_are_unique_within_each_profile():
         checks = [check for requirement in profile.requirements for check in requirement.get_checks()]
         identities = {(check.name, check.severity) for check in checks}
         assert len(identities) == len(checks), profile.identifier
+
+
+def test_profile_checks_return_structured_cached_results():
+    profile = next(
+        item
+        for item in Profile.load_profiles(Path("rocrate_validator/profiles"), severity=Severity.OPTIONAL)
+        if item.identifier == "ro-crate-1.2"
+    )
+
+    first = profile.validate_checks()
+    second = profile.validate_checks()
+
+    assert first is second
+    assert len(first) == 1
+    assert first[0].check_id == "unique-requirement-check-identity"
+    assert first[0].passed
 
 
 def test_check_name_and_severity_match_parent_override(check_overriding_profiles_path: str):

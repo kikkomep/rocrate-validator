@@ -37,6 +37,7 @@ from rocrate_validator.errors import (
     ProfileSpecificationNotFound,
 )
 from rocrate_validator.models._logging import logger
+from rocrate_validator.models.profile_check import ProfileCheckFailure, ProfileCheckResult, ProfileCheckSuite
 from rocrate_validator.models.severity import Severity
 from rocrate_validator.utils.collections import MapIndex, MultiIndexMap
 
@@ -64,8 +65,7 @@ class Profile:
             MapIndex("token_path", unique=False),
         ],
     )
-    __validated_check_identities: ClassVar[set[tuple[Path, Severity]]] = set()
-    __invalid_check_identities: ClassVar[dict[tuple[Path, Severity], str]] = {}
+    __profile_check_results: ClassVar[dict[tuple[Path, Severity], tuple[ProfileCheckResult, ...]]] = {}
 
     def __init__(
         self,
@@ -443,27 +443,27 @@ class Profile:
             raise DuplicateRequirementCheck(identity, self.identifier)
         return checks[0] if checks else None
 
-    def validate_requirement_check_identities(self) -> None:
-        """Reject duplicate ``(name, severity)`` identities in this profile."""
+    def validate_checks(self) -> tuple[ProfileCheckResult, ...]:
+        """Run and cache the registered consistency checks for this profile."""
         cache_key = (self.path.resolve(), self.severity)
-        if cache_key in self.__validated_check_identities:
-            return
-        if duplicate := self.__invalid_check_identities.get(cache_key):
-            raise DuplicateRequirementCheck(duplicate, self.identifier)
+        if cache_key not in self.__profile_check_results:
+            self.__profile_check_results[cache_key] = ProfileCheckSuite().run(self)
+        return self.__profile_check_results[cache_key]
 
-        seen: set[tuple[str, Severity]] = set()
-        for requirement in self.requirements:
-            for check in requirement.get_checks():
-                identity = (check.name, check.severity)
-                if identity in seen:
-                    duplicate = f"{check.name} [{check.severity.name}]"
-                    self.__invalid_check_identities[cache_key] = duplicate
-                    raise DuplicateRequirementCheck(
-                        duplicate,
-                        self.identifier,
-                    )
-                seen.add(identity)
-        self.__validated_check_identities.add(cache_key)
+    def validate_profile_checks(self) -> None:
+        """Run all profile checks and raise when one of them fails."""
+        for result in self.validate_checks():
+            if result.passed:
+                continue
+            if result.check_id == "unique-requirement-check-identity":
+                name = result.details["name"]
+                severity = result.details["severity"]
+                raise DuplicateRequirementCheck(f"{name} [{severity}]", self.identifier)
+            raise ProfileCheckFailure(result)
+
+    def validate_requirement_check_identities(self) -> None:
+        """Backward-compatible alias for the profile check suite."""
+        self.validate_profile_checks()
 
     @classmethod
     def __get_nested_profiles__(cls, source: str) -> list[str]:
