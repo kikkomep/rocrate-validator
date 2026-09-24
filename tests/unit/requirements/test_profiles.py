@@ -300,6 +300,19 @@ def test_load_invalid_profile_with_override_on_same_profile(fake_profiles_path: 
         logger.debug("The profiles: %r", profiles)
 
 
+def test_validation_rejects_duplicate_check_identity_with_overrides_enabled(fake_profiles_path: str):
+    settings = ValidationSettings(
+        profiles_path=fake_profiles_path,
+        profile_identifier="invalid-duplicated-shapes",
+        rocrate_uri=ValidROC().wrroc_paper,
+        enable_profile_inheritance=True,
+        allow_requirement_check_override=True,
+    )
+
+    with pytest.raises(DuplicateRequirementCheck, match="Check Metadata File Descriptor entity existence"):
+        _ = ValidationContext(Validator(settings), settings).profiles
+
+
 def test_load_valid_profile_with_override_on_inherited_profile(fake_profiles_path: str):
     """Test the loaded profiles from the validator context."""
     settings_dict: dict[str, Any] = {

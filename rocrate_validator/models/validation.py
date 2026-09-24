@@ -651,6 +651,12 @@ class ValidationContext:
         # Set the profiles to validate against as the target profile and its inherited profiles
         profiles = [*profile.inherited_profiles, profile]
 
+        # Validate check identities only for profiles participating in this run.
+        # Profile listing and discovery may still inspect intentionally invalid
+        # fixtures without forcing requirement loading.
+        for validation_profile in profiles:
+            validation_profile.validate_requirement_check_identities()
+
         # if the check for duplicates is disabled, return the profiles
         if self.disable_check_for_duplicates:
             return profiles

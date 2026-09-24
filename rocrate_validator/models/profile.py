@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 from functools import total_ordering
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from rdflib import RDF, RDFS, Graph, Namespace, URIRef
 
@@ -64,6 +64,8 @@ class Profile:
             MapIndex("token_path", unique=False),
         ],
     )
+    __validated_check_identities: ClassVar[set[tuple[Path, Severity]]] = set()
+    __invalid_check_identities: ClassVar[dict[tuple[Path, Severity], str]] = {}
 
     def __init__(
         self,
@@ -429,7 +431,8 @@ class Profile:
         check_name: str,
         severity: Severity | None = None,
     ) -> RequirementCheck | None:
-        """Get the check matching a name and optional severity.
+        """
+        Get the check matching a name and optional severity.
 
         A check identity must be unique within a profile. Ambiguous lookups fail
         instead of making override behavior depend on requirement load order.
@@ -439,6 +442,28 @@ class Profile:
             identity = f"{check_name} [{severity.name}]" if severity else check_name
             raise DuplicateRequirementCheck(identity, self.identifier)
         return checks[0] if checks else None
+
+    def validate_requirement_check_identities(self) -> None:
+        """Reject duplicate ``(name, severity)`` identities in this profile."""
+        cache_key = (self.path.resolve(), self.severity)
+        if cache_key in self.__validated_check_identities:
+            return
+        if duplicate := self.__invalid_check_identities.get(cache_key):
+            raise DuplicateRequirementCheck(duplicate, self.identifier)
+
+        seen: set[tuple[str, Severity]] = set()
+        for requirement in self.requirements:
+            for check in requirement.get_checks():
+                identity = (check.name, check.severity)
+                if identity in seen:
+                    duplicate = f"{check.name} [{check.severity.name}]"
+                    self.__invalid_check_identities[cache_key] = duplicate
+                    raise DuplicateRequirementCheck(
+                        duplicate,
+                        self.identifier,
+                    )
+                seen.add(identity)
+        self.__validated_check_identities.add(cache_key)
 
     @classmethod
     def __get_nested_profiles__(cls, source: str) -> list[str]:
