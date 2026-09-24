@@ -141,6 +141,13 @@ def validate_uri(ctx, param, value):
     show_default=True,
 )
 @click.option(
+    "--no-profile-checks",
+    is_flag=True,
+    help="Skip consistency checks on validation profiles",
+    default=False,
+    show_default=True,
+)
+@click.option(
     "-l",
     "--requirement-severity",
     type=click.Choice([s.name for s in Severity], case_sensitive=False),
@@ -270,6 +277,7 @@ def validate(
     skip_availability_check: bool = False,
     no_auto_profile: bool = False,
     disable_profile_inheritance: bool = False,
+    no_profile_checks: bool = False,
     requirement_severity: str = Severity.REQUIRED.name,
     requirement_severity_only: bool = False,
     skip_checks: list[str] | None = None,
@@ -352,6 +360,7 @@ def validate(
             "creation_time": creation_time,
             "enforce_availability": enforce_availability,
             "skip_availability_check": skip_availability_check,
+            "validate_profile_checks": not no_profile_checks,
         }
 
         # Print the application header
