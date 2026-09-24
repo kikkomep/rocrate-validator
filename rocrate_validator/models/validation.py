@@ -704,7 +704,11 @@ class ValidationContext:
         """
         profiles = self.profiles
         assert len(profiles) > 0, "No profiles to validate"
-        return self.profiles[-1]
+        # Overlay validation visits the target before its sources so that
+        # target-specific fail-fast checks run first; resolve by identifier
+        # instead of relying on the order of the profiles list.
+        target = next((profile for profile in profiles if profile.identifier == self.profile_identifier), None)
+        return target or profiles[-1]
 
     def is_rule_overlay_source(self, profile: Profile) -> bool:
         """Return whether ``profile`` is composed into the validation target."""
