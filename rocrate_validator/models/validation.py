@@ -48,6 +48,7 @@ from rocrate_validator.utils import log as logging
 from rocrate_validator.utils.http import find_offline_cache_miss
 
 if TYPE_CHECKING:
+    from rocrate_validator.models.profile_provenance import EffectiveRequirementCheck
     from rocrate_validator.utils.uri import URI
 
 
@@ -328,6 +329,9 @@ class ValidationContext:
         self._properties: dict = {}
         # URLs already reported as missing from the HTTP cache during this run
         self._offline_cache_misses_warned: set[str] = set()
+        # Effective identities are requested by several reporting consumers
+        # for the same check during one validation run.
+        self._effective_check_cache: dict[tuple[int, int], EffectiveRequirementCheck] = {}
         # flag set when the validation must be aborted because the metadata
         # cannot be read (e.g. the file descriptor is not valid JSON)
         self._aborted: bool = False
@@ -716,11 +720,21 @@ class ValidationContext:
 
     def effective_check_identifier(self, check: RequirementCheck) -> str:
         """Return a context-local identifier without mutating the source check."""
-        return self.target_profile.effective_requirement_check(check).identifier
+        return self.effective_check_provenance(check).identifier
 
     def effective_check_profile(self, check: RequirementCheck) -> Profile:
         """Return the reporting profile for a check in this validation."""
-        return self.target_profile.effective_requirement_check(check).profile
+        return self.effective_check_provenance(check).profile
+
+    def effective_check_provenance(self, check: RequirementCheck) -> EffectiveRequirementCheck:
+        """Return and cache the effective identity of ``check`` in this context."""
+        target_profile = self.target_profile
+        cache_key = (id(target_profile), id(check))
+        provenance = self._effective_check_cache.get(cache_key)
+        if provenance is None:
+            provenance = target_profile.effective_requirement_check(check)
+            self._effective_check_cache[cache_key] = provenance
+        return provenance
 
     def is_check_skipped(self, check: RequirementCheck) -> bool:
         """
