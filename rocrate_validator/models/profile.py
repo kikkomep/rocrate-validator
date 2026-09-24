@@ -15,8 +15,6 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
-from enum import Enum
 from functools import total_ordering
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, cast
@@ -45,6 +43,10 @@ from rocrate_validator.models.profile_check import (
     ProfileCheckResult,
     ProfileCheckSuite,
 )
+from rocrate_validator.models.profile_provenance import (
+    EffectiveRequirementCheck,
+    RequirementCheckRelation,
+)
 from rocrate_validator.models.severity import Severity
 from rocrate_validator.utils.collections import MapIndex, MultiIndexMap
 
@@ -52,50 +54,6 @@ if TYPE_CHECKING:
     from collections.abc import Collection
 
     from rocrate_validator.models.requirement import Requirement, RequirementCheck
-
-
-class RequirementCheckRelation(Enum):
-    """How a requirement check became part of an effective profile."""
-
-    DEFINED_LOCALLY = "defined_locally"
-    INHERITED = "inherited"
-    REPLACES = "replaces"
-
-
-@dataclass(frozen=True)
-class EffectiveRequirementCheck:
-    """
-    A requirement check as exposed by a specific validation profile.
-
-    The source check is never mutated. ``identifier`` and ``profile`` are the
-    identity under which the check is reported by the effective profile, while
-    the ``source_*`` properties retain the implementation provenance.
-    """
-
-    check: RequirementCheck
-    identifier: str
-    profile: Profile
-    relation: RequirementCheckRelation
-    replaces: tuple[RequirementCheck, ...] = ()
-
-    @property
-    def source_identifier(self) -> str:
-        return self.check.identifier
-
-    @property
-    def source_profile(self) -> Profile:
-        return self.check.requirement.profile
-
-    def to_dict(self) -> dict[str, Any]:
-        """Return a serializable representation of the effective check."""
-        return {
-            "identifier": self.identifier,
-            "profile": self.profile.identifier,
-            "source_identifier": self.source_identifier,
-            "source_profile": self.source_profile.identifier,
-            "relation": self.relation.value,
-            "replaces": [check.identifier for check in self.replaces],
-        }
 
 
 @total_ordering

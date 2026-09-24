@@ -20,13 +20,14 @@ from rocrate_validator.models.events import (
     RequirementValidationEvent,
     ValidationEvent,
 )
-from rocrate_validator.models.profile import EffectiveRequirementCheck, Profile, RequirementCheckRelation
+from rocrate_validator.models.profile import Profile
 from rocrate_validator.models.profile_check import (
     ProfileCheck,
     ProfileCheckFailure,
     ProfileCheckResult,
     ProfileCheckSuite,
 )
+from rocrate_validator.models.profile_provenance import EffectiveRequirementCheck, RequirementCheckRelation
 from rocrate_validator.models.requirement import (
     Requirement,
     RequirementCheck,
