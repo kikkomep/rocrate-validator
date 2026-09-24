@@ -386,7 +386,7 @@ def validate(
         results = {}
         for profile in profile_identifiers:
             # Duplicate settings for each profile and set the profile identifier
-            logger.info("\nValidating RO-Crate against profile: [bold cyan]%s[/bold cyan]", profile)
+            logger.info("\nValidating RO-Crate against profile: [bold magenta]%s[/bold magenta]", profile)
             profile_settings = validation_settings.copy()
             profile_settings["profile_identifier"] = profile
             logger.debug("Profile selected for validation: %s", profile)
@@ -683,7 +683,7 @@ def _emit_json_report(
             console.print(
                 f"\n{' ' * 2}✅ [bold]Validation [green]PASSED![/green]. "
                 f"\n{' ' * 5}RO-Crate is valid according to the profile(s): "
-                f"[cyan]{', '.join(profile_identifiers)}[/cyan][/bold]"
+                f"[magenta]{', '.join(profile_identifiers)}[/magenta][/bold]"
             )
         else:
             console.print(f"\n{' ' * 2}❌ [bold]Validation [red]FAILED![/red][/bold]")
