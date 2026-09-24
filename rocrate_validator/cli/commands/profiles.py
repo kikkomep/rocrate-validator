@@ -252,7 +252,7 @@ def describe_profile(
       * full:       <profile>_<requirement#>.<check#> (e.g. "ro-crate-1.2_1.2")
 
     With -v on a single check, the source code of the check is shown.
-    """  # ruff: ignore[escape-sequence-in-docstring]
+    """
 
     # Get the console
     console = ctx.obj["console"]

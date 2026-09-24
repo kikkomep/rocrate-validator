@@ -515,15 +515,32 @@ class Profile:
         context and never have to mutate the source model.
         """
         effective_checks: list[EffectiveRequirementCheck] = []
-        seen_identities: set[tuple[str, Severity]] = set()
+        seen_identities: dict[tuple[str, Severity], tuple[RequirementCheck, int]] = {}
         for source_profile in (self, *self.inherited_profiles):
             for requirement in source_profile.requirements:
                 for check in requirement.get_checks():
                     identity = self.__check_identity__(check)
-                    if identity in seen_identities:
-                        continue
-                    seen_identities.add(identity)
-                    effective_checks.append(self.effective_requirement_check(check))
+                    previous = seen_identities.get(identity)
+                    if previous is not None:
+                        previous_check, previous_index = previous
+                        previous_profile = previous_check.requirement.profile
+                        # A transitive ancestor is shadowed by the nearer
+                        # profile already selected. Unrelated parents form an
+                        # ambiguous effective identity and must not be hidden.
+                        if source_profile in previous_profile.inherited_profiles:
+                            continue
+                        if previous_profile in source_profile.inherited_profiles:
+                            effective_checks[previous_index] = self.effective_requirement_check(check)
+                            seen_identities[identity] = (check, previous_index)
+                        else:
+                            profiles = {previous_profile.identifier, source_profile.identifier}
+                            raise DuplicateRequirementCheck(
+                                f"{check.name} [{check.severity.name}] from {', '.join(sorted(profiles))}",
+                                self.identifier,
+                            )
+                    else:
+                        seen_identities[identity] = (check, len(effective_checks))
+                        effective_checks.append(self.effective_requirement_check(check))
         return tuple(effective_checks)
 
     def validate_checks(self) -> tuple[ProfileCheckResult, ...]:
