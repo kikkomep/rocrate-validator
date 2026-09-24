@@ -716,25 +716,11 @@ class ValidationContext:
 
     def effective_check_identifier(self, check: RequirementCheck) -> str:
         """Return a context-local identifier without mutating the source check."""
-        if not self.is_rule_overlay_source(check.requirement.profile):
-            return check.identifier
-        identity_check = check
-        if check.requirement.profile == self.target_profile:
-            overlay_overrides = [
-                parent_check
-                for parent_check in check.overrides
-                if parent_check.requirement.profile.uri in self.target_profile.rule_overlay_of
-            ]
-            if len(overlay_overrides) == 1:
-                identity_check = overlay_overrides[0]
-        relative_identifier = identity_check.relative_identifier.split(" ", maxsplit=1)[-1]
-        return f"{self.target_profile.identifier}_{relative_identifier}"
+        return self.target_profile.effective_requirement_check(check).identifier
 
     def effective_check_profile(self, check: RequirementCheck) -> Profile:
         """Return the reporting profile for a check in this validation."""
-        return (
-            self.target_profile if self.is_rule_overlay_source(check.requirement.profile) else check.requirement.profile
-        )
+        return self.target_profile.effective_requirement_check(check).profile
 
     def is_check_skipped(self, check: RequirementCheck) -> bool:
         """

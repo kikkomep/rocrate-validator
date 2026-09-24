@@ -15,6 +15,8 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
+from enum import Enum
 from functools import total_ordering
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, cast
@@ -50,6 +52,50 @@ if TYPE_CHECKING:
     from collections.abc import Collection
 
     from rocrate_validator.models.requirement import Requirement, RequirementCheck
+
+
+class RequirementCheckRelation(Enum):
+    """How a requirement check became part of an effective profile."""
+
+    DEFINED_LOCALLY = "defined_locally"
+    INHERITED = "inherited"
+    REPLACES = "replaces"
+
+
+@dataclass(frozen=True)
+class EffectiveRequirementCheck:
+    """
+    A requirement check as exposed by a specific validation profile.
+
+    The source check is never mutated. ``identifier`` and ``profile`` are the
+    identity under which the check is reported by the effective profile, while
+    the ``source_*`` properties retain the implementation provenance.
+    """
+
+    check: RequirementCheck
+    identifier: str
+    profile: Profile
+    relation: RequirementCheckRelation
+    replaces: tuple[RequirementCheck, ...] = ()
+
+    @property
+    def source_identifier(self) -> str:
+        return self.check.identifier
+
+    @property
+    def source_profile(self) -> Profile:
+        return self.check.requirement.profile
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a serializable representation of the effective check."""
+        return {
+            "identifier": self.identifier,
+            "profile": self.profile.identifier,
+            "source_identifier": self.source_identifier,
+            "source_profile": self.source_profile.identifier,
+            "relation": self.relation.value,
+            "replaces": [check.identifier for check in self.replaces],
+        }
 
 
 @total_ordering
@@ -449,6 +495,78 @@ class Profile:
             identity = f"{check_name} [{severity.name}]" if severity else check_name
             raise DuplicateRequirementCheck(identity, self.identifier)
         return checks[0] if checks else None
+
+    @staticmethod
+    def __check_identity__(check: RequirementCheck) -> tuple[str, Severity]:
+        return check.name, check.severity
+
+    def effective_requirement_check(self, check: RequirementCheck) -> EffectiveRequirementCheck:
+        """
+        Return the provenance and reporting identity of ``check`` in this profile.
+
+        A check defined by this profile replaces direct-parent checks with the
+        same name and severity. Checks composed through ``ruleOverlayOf`` are
+        reported in this profile's namespace; ordinary inherited checks retain
+        their source identity.
+        """
+        source_profile = check.requirement.profile
+        if source_profile == self:
+            replaced_checks = tuple(check.overrides)
+            identity_check = check
+            overlay_replacements = tuple(
+                parent_check
+                for parent_check in replaced_checks
+                if parent_check.requirement.profile.uri in self.rule_overlay_of
+            )
+            if len(overlay_replacements) == 1:
+                identity_check = overlay_replacements[0]
+            relative_identifier = identity_check.relative_identifier.split(" ", maxsplit=1)[-1]
+            return EffectiveRequirementCheck(
+                check=check,
+                identifier=f"{self.identifier}_{relative_identifier}",
+                profile=self,
+                relation=(
+                    RequirementCheckRelation.REPLACES if replaced_checks else RequirementCheckRelation.DEFINED_LOCALLY
+                ),
+                replaces=replaced_checks,
+            )
+
+        if source_profile.uri in self.rule_overlay_of:
+            relative_identifier = check.relative_identifier.split(" ", maxsplit=1)[-1]
+            return EffectiveRequirementCheck(
+                check=check,
+                identifier=f"{self.identifier}_{relative_identifier}",
+                profile=self,
+                relation=RequirementCheckRelation.INHERITED,
+            )
+
+        return EffectiveRequirementCheck(
+            check=check,
+            identifier=check.identifier,
+            profile=source_profile,
+            relation=RequirementCheckRelation.INHERITED,
+        )
+
+    def get_effective_requirement_checks(self) -> tuple[EffectiveRequirementCheck, ...]:
+        """
+        Return the checks that form this profile, including inherited checks.
+
+        More-specific definitions shadow inherited checks with the same
+        ``(name, severity)`` identity. The returned objects keep source and
+        effective identities separate, so callers do not need a validation
+        context and never have to mutate the source model.
+        """
+        effective_checks: list[EffectiveRequirementCheck] = []
+        seen_identities: set[tuple[str, Severity]] = set()
+        for source_profile in (self, *self.inherited_profiles):
+            for requirement in source_profile.requirements:
+                for check in requirement.get_checks():
+                    identity = self.__check_identity__(check)
+                    if identity in seen_identities:
+                        continue
+                    seen_identities.add(identity)
+                    effective_checks.append(self.effective_requirement_check(check))
+        return tuple(effective_checks)
 
     def validate_checks(self) -> tuple[ProfileCheckResult, ...]:
         """Run and cache the registered consistency checks for this profile."""
