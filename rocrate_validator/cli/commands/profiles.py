@@ -156,6 +156,62 @@ def list_profiles(ctx, no_paging: bool = False):  # , profiles_path: Path = DEFA
         handle_error(e, console)
 
 
+@profiles.command("check")
+@click.argument("profile-identifier", type=click.STRING, default=DEFAULT_PROFILE_IDENTIFIER, required=True)
+@click.option(
+    "--no-paging", is_flag=True, help="Disable paging", default=False, show_default=True, hidden=sys.platform == "win32"
+)
+@click.pass_context
+def check_profile(ctx, profile_identifier: str = DEFAULT_PROFILE_IDENTIFIER, no_paging: bool = False):
+    """Check the consistency of a profile and its inherited profiles."""
+    console = ctx.obj["console"]
+    pager = ctx.obj["pager"]
+    interactive = ctx.obj["interactive"]
+    enable_pager = not no_paging and interactive and sys.platform != "win32"
+    failed = False
+
+    try:
+        profile = services.get_profile(
+            profile_identifier,
+            profiles_path=ctx.obj["profiles_path"],
+            extra_profiles_path=ctx.obj["extra_profiles_path"],
+        )
+        profiles = [*profile.inherited_profiles, profile]
+        results = [
+            (checked_profile, result) for checked_profile in profiles for result in checked_profile.validate_checks()
+        ]
+
+        table = Table(
+            title=f"   Profile checks: {profile.identifier}",
+            title_style="italic bold cyan",
+            title_justify="left",
+            header_style="bold cyan",
+            border_style="bright_black",
+        )
+        table.add_column("Profile", style="magenta bold")
+        table.add_column("Check", style="cyan")
+        table.add_column("Status", justify="center")
+        table.add_column("Message")
+        table.add_column("Details")
+
+        for checked_profile, result in results:
+            status = "[green]PASS[/green]" if result.passed else "[red]FAIL[/red]"
+            failed |= not result.passed
+            details = ", ".join(f"{key}={value}" for key, value in result.details.items())
+            table.add_row(checked_profile.identifier, result.check_id, status, result.message, details)
+
+        with console.pager(pager=pager, styles=not console.no_color) if enable_pager else console:
+            console.print(get_app_header_rule())
+            console.print(Padding(table, (0, 1)))
+
+    except SystemExit:
+        raise
+    except Exception as e:
+        handle_error(e, console)
+    if failed:
+        raise click.exceptions.Exit(1)
+
+
 @profiles.command("describe")
 @click.option(
     "-v",

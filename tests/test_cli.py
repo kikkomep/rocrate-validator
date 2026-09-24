@@ -361,6 +361,33 @@ def test_profiles_list(cli_runner: CliRunner):
     assert "ro-crate-1.1" in result.output  # Check for a known profile
 
 
+def test_profiles_check(cli_runner: CliRunner):
+    result = cli_runner.invoke(cli, ["profiles", "check", "ro-crate", "--no-paging"])
+
+    assert result.exit_code == 0
+    assert "Profile checks: ro-crate-1.2" in result.output
+    assert "unique-requirement-check-identity" in result.output
+    assert "PASS" in result.output
+
+
+def test_profiles_check_reports_invalid_profile(cli_runner: CliRunner, fake_profiles_path: Path):
+    result = cli_runner.invoke(
+        cli,
+        [
+            "profiles",
+            "--extra-profiles-path",
+            str(fake_profiles_path),
+            "check",
+            "invalid-duplicated-shapes",
+            "--no-paging",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "unique-requirement-check-identity" in result.output
+    assert "FAIL" in result.output
+
+
 def test_validate_no_auto_profile_falls_back_to_1_2(cli_runner: CliRunner):
     """
     With auto-detection disabled the base `ro-crate` profile is used, and that
