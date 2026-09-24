@@ -194,7 +194,7 @@ def check_profile(ctx, profile_identifier: str = DEFAULT_PROFILE_IDENTIFIER, no_
             header_style="bold cyan",
             border_style="bright_black",
         )
-        table.add_column("Profile", style="magenta bold")
+        table.add_column("Profile", style="hot_pink bold")
         table.add_column("Check", style="cyan")
         table.add_column("Status", justify="center")
         table.add_column("Message")
@@ -281,7 +281,7 @@ def describe_profile(
             return
 
         # Set the subheader title
-        subheader_title = f"[bold][cyan]Profile:[/cyan] [magenta italic]{profile.identifier}[/magenta italic][/bold]"
+        subheader_title = f"[bold][cyan]Profile:[/cyan] [hot_pink italic]{profile.identifier}[/hot_pink italic][/bold]"
 
         # Set the subheader content
         subheader_content = f"[bold cyan]Version:[/bold cyan] [italic green]{profile.version}[/italic green]\n"
@@ -392,7 +392,7 @@ def __compacted_describe_profile__(profile):
 
     # Define columns
     table.add_column("#", style="cyan bold", justify="right")
-    table.add_column("Name", style="magenta bold", justify="left")
+    table.add_column("Name", style="hot_pink bold", justify="left")
     table.add_column("Description", style="white italic")
     table.add_column("# REQUIRED", style=__requirement_level_style__(LevelCollection.REQUIRED), justify="center")
     table.add_column("# RECOMMENDED", style=__requirement_level_style__(LevelCollection.RECOMMENDED), justify="center")
@@ -448,9 +448,9 @@ def __verbose_describe_profile__(profile):
 
     # Define columns
     table.add_column("Effective ID (†)", style="cyan bold", justify="right")
-    table.add_column("Name", style="magenta bold", justify="left")
+    table.add_column("Name", style="hot_pink bold", justify="left")
     table.add_column("Relation", justify="left")
-    table.add_column("Source ID (†)", style="green", justify="right")
+    table.add_column("Source ID (†)", style="hot_pink italic", justify="right")
     table.add_column("Description", style="white italic")
     table.add_column("Severity (*)", style="bold", justify="center")
 
@@ -508,11 +508,14 @@ def __resolve_check__(profile: Profile, check_identifier: str) -> EffectiveRequi
 def __format_check_relation__(effective_check: EffectiveRequirementCheck) -> str:
     """Format the provenance relation of an effective check."""
     if effective_check.relation == RequirementCheckRelation.DEFINED_LOCALLY:
-        return "[bold green]Defined locally[/bold green]"
+        return "[bold yellow]Defined locally[/bold yellow]"
     if effective_check.relation == RequirementCheckRelation.INHERITED:
-        return f"[bold cyan]Inherited[/bold cyan] from [magenta]{effective_check.source_profile.identifier}[/magenta]"
+        return (
+            f"[bold cyan]Inherited[/bold cyan] from "
+            f"[italic hot_pink]{effective_check.source_profile.identifier}[/italic hot_pink]"
+        )
     replaced = ", ".join(check.identifier for check in effective_check.replaces)
-    return f"[bold yellow]Replaces[/bold yellow] [magenta]{replaced}[/magenta]"
+    return f"[bold orange1]Replaces[/bold orange1] [italic hot_pink]{replaced}[/italic hot_pink]"
 
 
 def __describe_check__(
@@ -527,19 +530,19 @@ def __describe_check__(
 
     header = (
         f"[bold cyan]Profile:[/bold cyan] "
-        f"[italic magenta]{profile.identifier}[/italic magenta]\n"
+        f"[italic hot_pink]{profile.identifier}[/italic hot_pink]\n"
         f"[bold cyan]Effective ID:[/bold cyan] "
         f"[italic green]{effective_check.identifier}[/italic green]\n"
-        f"[bold cyan]Name:[/bold cyan] [italic]{check.name}[/italic]\n"
+        f"[bold cyan]Name:[/bold cyan] [italic hot_pink]{check.name}[/italic hot_pink]\n"
         f"[bold cyan]Severity:[/bold cyan] "
         f"[bold {severity_color}]{check.severity.name}[/bold {severity_color}]\n"
         f"[bold cyan]Requirement:[/bold cyan] "
-        f"[italic]#{requirement.order_number} — {requirement.name}[/italic]"
+        f"[italic hot_pink]#{requirement.order_number} — {requirement.name}[/italic hot_pink]"
     )
     if requirement.path:
         header += f"\n[bold cyan]Source file:[/bold cyan] [italic green]{shorten_path(requirement.path)}[/italic green]"
 
-    title = f"[bold][cyan]Check:[/cyan] [magenta italic]{effective_check.identifier}[/magenta italic][/bold]"
+    title = f"[bold][cyan]Check:[/cyan] [hot_pink italic]{effective_check.identifier}[/hot_pink italic][/bold]"
     console.print(
         Padding(
             Panel(header, title=title, padding=(1, 1, 1, 1), title_align="left", border_style="cyan"),
@@ -558,9 +561,10 @@ def __describe_check__(
 
     provenance = (
         f"[bold cyan]Relation:[/bold cyan] {__format_check_relation__(effective_check)}\n"
-        f"[bold cyan]Effective ID:[/bold cyan] [green]{effective_check.identifier}[/green]\n"
-        f"[bold cyan]Source ID:[/bold cyan] [green]{effective_check.source_identifier}[/green]\n"
-        f"[bold cyan]Source profile:[/bold cyan] [magenta]{effective_check.source_profile.identifier}[/magenta]"
+        f"[bold cyan]Effective ID:[/bold cyan] [italic cyan]{effective_check.identifier}[/italic cyan]\n"
+        f"[bold cyan]Source ID:[/bold cyan] [italic hot_pink]{effective_check.source_identifier}[/italic hot_pink]\n"
+        f"[bold cyan]Source profile:[/bold cyan] "
+        f"[italic hot_pink]{effective_check.source_profile.identifier}[/italic hot_pink]"
     )
     console.print(
         Padding(
