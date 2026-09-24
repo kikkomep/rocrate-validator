@@ -27,6 +27,7 @@ from rocrate_validator.models import (
     URI,
     CheckResult,
     Profile,
+    RequirementCheckRelation,
     Severity,
     ValidationContext,
     ValidationSettings,
@@ -494,6 +495,51 @@ def test_check_name_and_severity_match_parent_override(check_overriding_profiles
         )
     finally:
         child_check.order_number = original_order
+
+
+def test_effective_checks_expose_overlay_provenance():
+    profiles = Profile.load_profiles("tests/data/profiles/effective_checks", severity=Severity.OPTIONAL)
+    profile = next(item for item in profiles if item.identifier == "effective-b")
+
+    effective_checks = profile.get_effective_requirement_checks()
+    by_name = {item.check.name: item for item in effective_checks}
+
+    assert len(effective_checks) == 2
+    replacement = by_name["Shared check"]
+    assert replacement.relation == RequirementCheckRelation.REPLACES
+    assert replacement.identifier == "effective-b_1.2"
+    assert replacement.source_identifier == "effective-b_1.1"
+    assert [check.identifier for check in replacement.replaces] == ["effective-a_1.2"]
+
+    inherited = by_name["Inherited check"]
+    assert inherited.relation == RequirementCheckRelation.INHERITED
+    assert inherited.profile == profile
+    assert inherited.identifier == "effective-b_1.1"
+    assert inherited.source_identifier == "effective-a_1.1"
+    assert inherited.source_profile.identifier == "effective-a"
+    assert inherited.replaces == ()
+    assert inherited.to_dict() == {
+        "identifier": "effective-b_1.1",
+        "profile": "effective-b",
+        "source_identifier": "effective-a_1.1",
+        "source_profile": "effective-a",
+        "relation": "inherited",
+        "replaces": [],
+    }
+
+
+def test_effective_checks_retain_ordinary_inherited_identity():
+    profiles = Profile.load_profiles(Path("rocrate_validator/profiles"), severity=Severity.OPTIONAL)
+    profile = next(item for item in profiles if item.identifier == "process-run-crate-0.5")
+    inherited = next(
+        item
+        for item in profile.get_effective_requirement_checks()
+        if item.relation == RequirementCheckRelation.INHERITED
+    )
+
+    assert inherited.profile == inherited.source_profile
+    assert inherited.identifier == inherited.source_identifier
+    assert inherited.source_profile != profile
 
 
 def test_same_name_with_different_severity_does_not_override():
