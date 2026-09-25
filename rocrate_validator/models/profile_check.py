@@ -151,6 +151,38 @@ class RuleOverlayConsistency(ProfileCheck):
         )
 
 
+class NoRequirementCheckOverrides(ProfileCheck):
+    """Ensure a profile does not replace checks defined by direct parents."""
+
+    identifier = "no-requirement-check-overrides"
+    description = "Requirement check overrides must not be present"
+
+    def run(self, profile: Profile) -> ProfileCheckResult:
+        for requirement in profile.requirements:
+            for check in requirement.get_checks():
+                overridden_checks = check.overrides
+                if overridden_checks:
+                    return ProfileCheckResult(
+                        check_id=self.identifier,
+                        profile_identifier=profile.identifier,
+                        passed=False,
+                        message="Requirement check override is disabled",
+                        details={
+                            "name": check.name,
+                            "severity": check.severity.name,
+                            "sources": ", ".join(
+                                overridden.requirement.profile.identifier for overridden in overridden_checks
+                            ),
+                        },
+                    )
+        return ProfileCheckResult(
+            check_id=self.identifier,
+            profile_identifier=profile.identifier,
+            passed=True,
+            message="No requirement check overrides found",
+        )
+
+
 class ProfileCheckSuite:
     """Run the registered consistency checks for a profile."""
 
@@ -160,7 +192,8 @@ class ProfileCheckSuite:
     )
 
     def __init__(self, checks: tuple[type[ProfileCheck], ...] | None = None):
-        self._checks = tuple(check() for check in (checks or self.DEFAULT_CHECKS))
+        selected_checks = checks if checks is not None else self.DEFAULT_CHECKS
+        self._checks = tuple(check() for check in selected_checks)
 
     def run(self, profile: Profile) -> tuple[ProfileCheckResult, ...]:
         """Return one result for every registered profile check."""

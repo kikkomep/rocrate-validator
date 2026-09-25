@@ -37,7 +37,12 @@ from rocrate_validator.errors import (
     ProfileSpecificationNotFound,
 )
 from rocrate_validator.models._logging import logger
-from rocrate_validator.models.profile_check import ProfileCheckFailure, ProfileCheckResult, ProfileCheckSuite
+from rocrate_validator.models.profile_check import (
+    NoRequirementCheckOverrides,
+    ProfileCheckFailure,
+    ProfileCheckResult,
+    ProfileCheckSuite,
+)
 from rocrate_validator.models.severity import Severity
 from rocrate_validator.utils.collections import MapIndex, MultiIndexMap
 
@@ -297,11 +302,13 @@ class Profile:
     @property
     def rule_overlay_of(self) -> list[str]:
         """
-        Profiles whose validation rules are composed into this profile.
+        Direct parent profiles whose validation rules are overlaid by this profile.
 
         This implementation relationship is deliberately separate from
         ``prof:isProfileOf``: ordinary profile inheritance retains its source
         identity, while overlay rules are reported in the target namespace.
+        Profile consistency checks require every value to resolve to a loaded
+        direct parent and reject ambiguous check identities across sources.
         """
         return cast("list[str]", self.__get_specification_property__("ruleOverlayOf", VALIDATOR_NS, pop_first=False))
 
@@ -711,19 +718,12 @@ class Profile:
 
         # Check for overridden checks
         if not allow_requirement_check_override:
-            # Navigate the profiles to check for overridden checks.
-            # If the override is not enabled in the settings raise an error.
-            profiles_checks = set()
-            # Search for duplicated checks in the profiles
+            override_check_suite = ProfileCheckSuite(checks=(NoRequirementCheckOverrides,))
             for profile in profiles:
-                profile_checks = [_ for r in profile.get_requirements() for _ in r.get_checks()]
-                for check in profile_checks:
-                    # If the check is already present in the list of checks,
-                    # raise an error if the override is not enabled.
-                    if check in profiles_checks:
-                        raise DuplicateRequirementCheck(check.name, profile.identifier)
-                    # Add the check to the list of checks
-                    profiles_checks.add(check)
+                result = override_check_suite.run(profile)[0]
+                if not result.passed:
+                    identity = f"{result.details['name']} [{result.details['severity']}]"
+                    raise DuplicateRequirementCheck(identity, profile.identifier)
 
         #  order profiles according to the number of profiles they depend on:
         # i.e, first the profiles that do not depend on any other profile
