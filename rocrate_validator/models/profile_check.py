@@ -86,10 +86,78 @@ class UniqueRequirementCheckIdentity(ProfileCheck):
         )
 
 
+class RuleOverlayConsistency(ProfileCheck):
+    """Ensure rule overlay sources can be composed without ambiguity."""
+
+    identifier = "rule-overlay-consistency"
+    description = "Rule overlay sources must be loaded direct parents with distinct check identities"
+
+    def run(self, profile: Profile) -> ProfileCheckResult:
+        sources = profile.rule_overlay_of
+        if not sources:
+            return ProfileCheckResult(
+                check_id=self.identifier,
+                profile_identifier=profile.identifier,
+                passed=True,
+                message="Profile does not declare rule overlay sources",
+            )
+
+        declared_parent_uris = set(profile.is_profile_of)
+        loaded_parents = {parent.uri: parent for parent in profile.parents}
+        for source_uri in sources:
+            if source_uri not in declared_parent_uris:
+                return ProfileCheckResult(
+                    check_id=self.identifier,
+                    profile_identifier=profile.identifier,
+                    passed=False,
+                    message="Rule overlay source is not a direct parent",
+                    details={"source": source_uri},
+                )
+            if source_uri not in loaded_parents:
+                return ProfileCheckResult(
+                    check_id=self.identifier,
+                    profile_identifier=profile.identifier,
+                    passed=False,
+                    message="Rule overlay source profile is not loaded",
+                    details={"source": source_uri},
+                )
+
+        identities: dict[tuple[str, Severity], str] = {}
+        for source_uri in sources:
+            source_profile = loaded_parents[source_uri]
+            for requirement in source_profile.requirements:
+                for check in requirement.get_checks():
+                    identity = (check.name, check.severity)
+                    previous_source = identities.get(identity)
+                    if previous_source is not None and previous_source != source_uri:
+                        return ProfileCheckResult(
+                            check_id=self.identifier,
+                            profile_identifier=profile.identifier,
+                            passed=False,
+                            message="Rule overlay sources contain an ambiguous check identity",
+                            details={
+                                "name": check.name,
+                                "severity": check.severity.name,
+                                "sources": f"{previous_source}, {source_uri}",
+                            },
+                        )
+                    identities[identity] = source_uri
+
+        return ProfileCheckResult(
+            check_id=self.identifier,
+            profile_identifier=profile.identifier,
+            passed=True,
+            message="Rule overlay sources are consistent",
+        )
+
+
 class ProfileCheckSuite:
     """Run the registered consistency checks for a profile."""
 
-    DEFAULT_CHECKS: ClassVar[tuple[type[ProfileCheck], ...]] = (UniqueRequirementCheckIdentity,)
+    DEFAULT_CHECKS: ClassVar[tuple[type[ProfileCheck], ...]] = (
+        UniqueRequirementCheckIdentity,
+        RuleOverlayConsistency,
+    )
 
     def __init__(self, checks: tuple[type[ProfileCheck], ...] | None = None):
         self._checks = tuple(check() for check in (checks or self.DEFAULT_CHECKS))
