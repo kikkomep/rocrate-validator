@@ -367,6 +367,7 @@ def test_profiles_check(cli_runner: CliRunner):
     assert result.exit_code == 0
     assert "Profile checks: ro-crate-1.2" in result.output
     assert "unique-requirement-check-identity" in result.output
+    assert "rule-overlay-consistency" in result.output
     assert "PASS" in result.output
 
 

@@ -15,7 +15,7 @@
 import logging
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from rdflib import Graph, Literal, Namespace
@@ -33,6 +33,11 @@ from rocrate_validator.models import (
     Validator,
 )
 from rocrate_validator.models.events import RequirementCheckValidationEvent
+from rocrate_validator.models.profile_check import (
+    NoRequirementCheckOverrides,
+    ProfileCheckSuite,
+    RuleOverlayConsistency,
+)
 from rocrate_validator.requirements.shacl.checks import SHACLCheck
 from rocrate_validator.requirements.shacl.errors import SHACLValidationError
 from rocrate_validator.requirements.shacl.models import ShapesRegistry
@@ -362,9 +367,100 @@ def test_profile_checks_return_structured_cached_results():
     second = profile.validate_checks()
 
     assert first is second
-    assert len(first) == 1
-    assert first[0].check_id == "unique-requirement-check-identity"
-    assert first[0].passed
+    assert {result.check_id for result in first} == {
+        "unique-requirement-check-identity",
+        "rule-overlay-consistency",
+    }
+    assert all(result.passed for result in first)
+
+
+def test_disabling_check_override_rejects_parent_match(check_overriding_profiles_path: str):
+    with pytest.raises(DuplicateRequirementCheck, match=r"\[REQUIRED\]"):
+        Profile.load_profiles(
+            check_overriding_profiles_path,
+            severity=Severity.OPTIONAL,
+            allow_requirement_check_override=False,
+        )
+
+
+def test_requirement_check_override_policy_is_not_a_default_profile_check():
+    assert NoRequirementCheckOverrides not in ProfileCheckSuite.DEFAULT_CHECKS
+
+
+def test_requirement_check_override_policy_returns_structured_failure(check_overriding_profiles_path: str):
+    profiles = Profile.load_profiles(check_overriding_profiles_path, severity=Severity.OPTIONAL)
+    overriding_profile = next(item for item in profiles if item.identifier == "b")
+
+    result = NoRequirementCheckOverrides().run(overriding_profile)
+
+    assert not result.passed
+    assert result.check_id == "no-requirement-check-overrides"
+    assert result.details == {
+        "name": "Check S",
+        "severity": "REQUIRED",
+        "sources": "a",
+    }
+
+
+def test_rule_overlay_sources_are_consistent(check_overriding_profiles_path: str):
+    profiles = Profile.load_profiles(check_overriding_profiles_path, severity=Severity.OPTIONAL)
+    overlay = next(item for item in profiles if item.identifier == "b")
+
+    result = RuleOverlayConsistency().run(overlay)
+
+    assert result.passed
+
+
+def test_rule_overlay_source_must_be_a_direct_parent(check_overriding_profiles_path: str, monkeypatch):
+    profiles = Profile.load_profiles(check_overriding_profiles_path, severity=Severity.OPTIONAL)
+    overlay = next(item for item in profiles if item.identifier == "d")
+    original_rule_overlay_of = cast("Any", Profile.rule_overlay_of).fget
+    assert original_rule_overlay_of is not None
+    monkeypatch.setattr(
+        Profile,
+        "rule_overlay_of",
+        property(
+            lambda profile: (
+                ["https://w3id.org/a"]
+                if profile.identifier == overlay.identifier
+                else original_rule_overlay_of(profile)
+            )
+        ),
+    )
+
+    result = RuleOverlayConsistency().run(overlay)
+
+    assert not result.passed
+    assert result.message == "Rule overlay source is not a direct parent"
+    assert result.details == {"source": "https://w3id.org/a"}
+
+
+def test_multiple_rule_overlay_sources_require_distinct_check_identities(
+    check_overriding_profiles_path: str,
+    monkeypatch,
+):
+    profiles = Profile.load_profiles(check_overriding_profiles_path, severity=Severity.OPTIONAL)
+    overlay = next(item for item in profiles if item.identifier == "y")
+    original_rule_overlay_of = cast("Any", Profile.rule_overlay_of).fget
+    assert original_rule_overlay_of is not None
+    monkeypatch.setattr(
+        Profile,
+        "rule_overlay_of",
+        property(
+            lambda profile: (
+                ["https://w3id.org/e", "https://w3id.org/f"]
+                if profile.identifier == overlay.identifier
+                else original_rule_overlay_of(profile)
+            )
+        ),
+    )
+
+    result = RuleOverlayConsistency().run(overlay)
+
+    assert not result.passed
+    assert result.message == "Rule overlay sources contain an ambiguous check identity"
+    assert result.details["name"] == "Check S"
+    assert result.details["severity"] == "REQUIRED"
 
 
 def test_check_name_and_severity_match_parent_override(check_overriding_profiles_path: str):
