@@ -334,18 +334,20 @@ class Requirement(ABC):
             cls.__record_skipped_checks__(requirement.get_checks(), context, message, SkipCategory.NOT_REACHED)
 
     @staticmethod
-    def __dependency_skip_reason__(check, context: ValidationContext) -> str | None:
+    def __dependency_skip_reason__(check: RequirementCheck, context: ValidationContext) -> str | None:
+        """
+        Explain why ``check`` cannot run because a dependency did not pass.
+
+        Dependency lookup is delegated to the validation context so an overlay
+        can resolve inherited checks and target-local replacements.  ``None``
+        means that every declared dependency has already passed.
+        """
         if not check.depends_on:
             return None
 
         blocked_dependencies = []
         for dependency_name in check.depends_on:
-            dependency = check.requirement.profile.get_requirement_check(dependency_name)
-            if dependency is None:
-                raise CheckDependencyError(
-                    f"check {check.name!r} depends on unknown check {dependency_name!r}",
-                    check.requirement.profile.identifier,
-                )
+            dependency = context.resolve_dependency_check(check, dependency_name)
             dependency_result = context.result.get_check_result(dependency)
             if dependency_result is not CheckResult.PASSED:
                 result_name = dependency_result.value if dependency_result else "not processed"
@@ -664,7 +666,7 @@ class RequirementLoader:
             ),
             reverse=False,
         )
-        requirements = RequirementLoader.order_by_dependencies(requirements)
+        requirements = RequirementLoader.order_by_dependencies(requirements, profile=profile)
         # assign order numbers to requirements
         for i, requirement in enumerate(requirements):
             requirement._order_number = i + 1
@@ -679,6 +681,28 @@ class RequirementLoader:
             for check in requirement.get_checks():
                 checks_by_name.setdefault(check.name, []).append(check)
         return checks_by_name
+
+    @classmethod
+    def effective_check_index(cls, profile: Profile) -> dict[str, list[RequirementCheck]]:
+        """
+        Index the checks active in ``profile`` after inherited replacements.
+
+        Checks are collected from the target and all inherited profiles. A
+        source check is excluded only when another check in this composition
+        explicitly overrides it; unrelated matches remain in the index so a
+        name-only dependency is correctly rejected as ambiguous.
+        """
+        profiles = (profile, *profile.inherited_profiles)
+        requirements = [requirement for source_profile in profiles for requirement in source_profile.requirements]
+        checks = [check for requirement in requirements for check in requirement.get_checks()]
+        check_ids = {id(check) for check in checks}
+        shadowed_ids = {
+            id(overridden) for check in checks for overridden in check.overrides if id(overridden) in check_ids
+        }
+        return {
+            name: [check for check in matches if id(check) not in shadowed_ids]
+            for name, matches in cls._check_index(requirements).items()
+        }
 
     @staticmethod
     def _resolve_dependency(
@@ -728,8 +752,21 @@ class RequirementLoader:
         return [nodes[index] for index in ordered_indices]
 
     @classmethod
-    def order_by_dependencies(cls, requirements: list[Requirement]) -> list[Requirement]:
-        """Apply check dependencies while preserving the baseline requirement order."""
+    def order_by_dependencies(
+        cls,
+        requirements: list[Requirement],
+        *,
+        profile: Profile | None = None,
+    ) -> list[Requirement]:
+        """
+        Order local checks and requirements according to their dependencies.
+
+        Dependencies within ``requirements`` produce topological-order edges.
+        A dependency supplied by an inherited profile is already guaranteed to
+        execute earlier in the profile traversal, so it is accepted without
+        adding a local edge. Unknown local dependencies and cycles still fail
+        profile loading.
+        """
         if not requirements:
             return []
 
@@ -743,8 +780,20 @@ class RequirementLoader:
             check_edges: dict[int, set[int]] = {}
             for check in checks:
                 for dependency_name in check.depends_on:
+                    inherited_dependency = (
+                        dependency_name not in checks_by_name
+                        and profile is not None
+                        and any(
+                            inherited.get_requirement_check(dependency_name) is not None
+                            for inherited in profile.inherited_profiles
+                        )
+                    )
+                    if inherited_dependency:
+                        continue
                     dependency = cls._resolve_dependency(check, dependency_name, checks_by_name)
-                    dependency_requirement_index = requirement_indices[id(dependency.requirement)]
+                    dependency_requirement_index = requirement_indices.get(id(dependency.requirement))
+                    if dependency_requirement_index is None:
+                        continue
                     source_requirement_index = requirement_indices[id(requirement)]
                     if dependency_requirement_index == source_requirement_index:
                         check_edges.setdefault(check_indices[id(dependency)], set()).add(check_indices[id(check)])
@@ -774,7 +823,14 @@ class RequirementLoader:
         *,
         include_dependencies: bool = True,
     ) -> list[Requirement]:
-        """Return selected requirements plus their transitive check dependencies."""
+        """
+        Return selected requirements plus transitive effective dependencies.
+
+        Dependency names are resolved against the composed profile, allowing a
+        target-local requirement to pull in requirements declared by inherited
+        profiles.  When ``include_dependencies`` is false, the original
+        selection is returned in dependency-safe order without expanding it.
+        """
         selected: list[Requirement] = []
         selected_ids: set[int] = set()
         queue = list(requirements)
@@ -786,8 +842,7 @@ class RequirementLoader:
             selected_ids.add(id(requirement))
             selected.append(requirement)
 
-            profile_requirements = requirement.profile.requirements
-            checks_by_name = cls._check_index(profile_requirements)
+            checks_by_name = cls.effective_check_index(requirement.profile)
             for check in requirement.get_checks():
                 for dependency_name in check.depends_on:
                     dependency = cls._resolve_dependency(check, dependency_name, checks_by_name)

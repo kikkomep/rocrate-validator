@@ -21,6 +21,7 @@ from urllib.error import HTTPError
 from rdflib import Graph
 
 from rocrate_validator.errors import (
+    CheckDependencyError,
     ProfileNotFound,
     ROCrateMetadataNotFoundError,
 )
@@ -751,6 +752,23 @@ class ValidationContext:
         if candidate is not None and check in candidate.overrides:
             return candidate
         return None
+
+    def resolve_dependency_check(self, check: RequirementCheck, dependency_name: str) -> RequirementCheck:
+        """
+        Resolve a named dependency in the active overlay composition.
+
+        Resolution uses the target profile's effective check set, which includes
+        inherited checks while excluding definitions shadowed by a more specific
+        replacement. Exactly one effective match is required; an absent or
+        ambiguous dependency is a profile-definition error.
+        """
+        matches = RequirementLoader.effective_check_index(self.target_profile).get(dependency_name, [])
+        if len(matches) != 1:
+            raise CheckDependencyError(
+                f"check {check.name!r} depends on unknown or ambiguous check {dependency_name!r}",
+                check.requirement.profile.identifier,
+            )
+        return matches[0]
 
     def get_profile_by_token(self, token: str) -> list[Profile]:
         """
