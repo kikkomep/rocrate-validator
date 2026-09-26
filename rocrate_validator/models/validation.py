@@ -736,6 +736,20 @@ class ValidationContext:
             self.target_profile if self.is_rule_overlay_source(check.requirement.profile) else check.requirement.profile
         )
 
+    def is_check_skipped(self, check: RequirementCheck) -> bool:
+        """
+        Return whether validation settings skip ``check`` under a supported identity.
+
+        A check contributed by an overlay source retains its source identifier
+        while exposing a target-local effective identifier. Accepting either
+        identity lets callers address the check without mutating its provenance.
+        """
+        skipped_identifiers = self.settings.skip_checks
+        if not skipped_identifiers:
+            return False
+        check_identifiers = {check.identifier, self.effective_check_identifier(check)}
+        return bool(check_identifiers.intersection(skipped_identifiers))
+
     def effective_check_replacement(self, check: RequirementCheck) -> RequirementCheck | None:
         """
         Return the target-local check replacing ``check``, if any.

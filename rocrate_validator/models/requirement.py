@@ -210,11 +210,7 @@ class Requirement(ABC):
             len(self._checks),
         )
         all_passed = True
-        checks_to_perform = [
-            _
-            for _ in self._checks
-            if not context.settings.skip_checks or _.identifier not in context.settings.skip_checks
-        ]
+        checks_to_perform = [check for check in self._checks if not context.is_check_skipped(check)]
         configured_skips = [check for check in self._checks if check not in checks_to_perform]
         for check in configured_skips:
             context.result._record_check_result(

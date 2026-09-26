@@ -123,6 +123,15 @@ class SHACLValidationContext(ValidationContext):
         self._ontology_graph: Graph = Graph()
 
     def __set_current_validation_profile__(self, profile: Profile) -> bool:
+        """
+        Load ``profile`` into the shared SHACL context when not yet processed.
+
+        Ontology and shape graphs are accumulated across the validation
+        composition. Shapes configured as skipped, or replaced by active
+        overrides, are removed before the profile registry is merged.
+
+        :return: ``True`` when the profile was loaded, otherwise ``False``
+        """
         if profile.identifier not in self._processed_profiles:
             # augment the ontology graph with the profile ontology
             ontology_graph = self.__load_ontology_graph__(profile.path)
@@ -134,15 +143,23 @@ class SHACLValidationContext(ValidationContext):
             profile_shapes_graph = profile_registry.shapes_graph
             logger.debug("Loaded shapes: %s", profile_shapes)
 
-            # enable overriding of checks
-            if self.settings.allow_requirement_check_override:
+            # Filter shapes that must not participate in the combined SHACL run.
+            if self.settings.skip_checks or self.settings.allow_requirement_check_override:
                 from rocrate_validator.requirements.shacl.requirements import SHACLRequirement  # noqa: PLC0415
 
                 for requirement in [_ for _ in profile.requirements if isinstance(_, SHACLRequirement)]:
                     for check in requirement.get_checks():
-                        if check.overridden and check.requirement.profile != self.target_profile:
+                        if self.base_context.is_check_skipped(check):
                             profile_shapes_graph -= cast("Any", check).shape.graph
-                            profile_shapes.pop(cast("Any", check).shape.key)
+                            profile_shapes.pop(cast("Any", check).shape.key, None)
+                            continue
+                        if (
+                            self.settings.allow_requirement_check_override
+                            and check.overridden
+                            and check.requirement.profile != self.target_profile
+                        ):
+                            profile_shapes_graph -= cast("Any", check).shape.graph
+                            profile_shapes.pop(cast("Any", check).shape.key, None)
 
             # add the shapes to the registry
             self._shapes_registry.extend(profile_shapes, profile_shapes_graph)
