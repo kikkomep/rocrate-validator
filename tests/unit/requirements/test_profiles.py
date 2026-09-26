@@ -576,6 +576,35 @@ def test_rule_overlay_keeps_source_before_target(check_overriding_profiles_path:
     assert [profile.identifier for profile in context.profiles] == ["a", "b"]
 
 
+def test_rule_overlay_check_can_be_skipped_by_source_or_effective_identifier(
+    check_overriding_profiles_path: str,
+) -> None:
+    """Accept either check identity when configuring an overlay skip."""
+    settings = ValidationSettings(
+        profiles_path=Path(check_overriding_profiles_path),
+        profile_identifier="b",
+        rocrate_uri=URI(ValidROC().wrroc_paper),
+    )
+    context = ValidationContext(Validator(settings), settings)
+    source_profile = next(profile for profile in context.profiles if profile.identifier == "a")
+    source_check = source_profile.get_requirement_check("Check the name of the entity", Severity.REQUIRED)
+
+    assert source_check is not None
+    supported_identifiers = (
+        source_check.identifier,
+        context.effective_check_identifier(source_check),
+    )
+
+    for identifier in supported_identifiers:
+        skip_settings = replace(settings, skip_checks=[identifier])
+        skip_context = ValidationContext(Validator(skip_settings), skip_settings)
+        skip_source = next(profile for profile in skip_context.profiles if profile.identifier == "a")
+        skip_check = skip_source.get_requirement_check("Check the name of the entity", Severity.REQUIRED)
+
+        assert skip_check is not None
+        assert skip_context.is_check_skipped(skip_check)
+
+
 def test_normally_inherited_check_keeps_source_identity(check_overriding_profiles_path: str):
     settings = ValidationSettings(
         profiles_path=Path(check_overriding_profiles_path),
