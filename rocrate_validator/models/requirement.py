@@ -359,18 +359,81 @@ class Requirement(ABC):
     def __record_dependency_skip__(check, context: ValidationContext, message: str) -> None:
         Requirement.__record_skipped_check__(check, context, message, SkipCategory.DEPENDENCY)
 
-    def __execute_check__(self, check, context, all_passed):
-        from rocrate_validator.models.events import (  # noqa: PLC0415
-            RequirementCheckValidationEvent,
-        )
+    @staticmethod
+    def __resolve_execution_check__(
+        check: RequirementCheck,
+        context: ValidationContext,
+    ) -> RequirementCheck | None:
+        """
+        Resolve the check that must execute in the current source-profile slot.
 
-        if check.overridden and check.requirement.profile.identifier != context.profile_identifier:
+        Ordinary checks are returned unchanged.  When a source Python check is
+        replaced by the active overlay, its target-local replacement is returned
+        so it runs at the same point in the general-to-specific traversal.  SHACL
+        replacements return ``None`` because their shapes are collected across
+        profiles and evaluated together when validation reaches the target.
+
+        ``None`` also indicates that the replacement has already run or that no
+        replacement belonging to the active target can be resolved.
+        """
+        if not check.overridden or check.requirement.profile.identifier == context.profile_identifier:
+            return check
+
+        from rocrate_validator.requirements.python import PyFunctionCheck  # noqa: PLC0415
+
+        # Python checks execute independently, so run the target replacement
+        # in the source check's slot to preserve general-to-specific ordering.
+        # SHACL checks are different: their shapes are collected across all
+        # profiles and evaluated once at the target profile.  Executing a SHACL
+        # replacement here would start that validation too early.
+        if not isinstance(check, PyFunctionCheck):
+            return None
+
+        replacement = context.effective_check_replacement(check)
+        if replacement is None:
             logger.debug(
                 "Skipping check '%s' because overridden by '%r'",
                 check.identifier,
                 [_.identifier for _ in check.overridden_by],
             )
+            return None
+        if context.result.get_check_result(replacement) is not None:
+            return None
+        logger.debug(
+            "Executing target replacement '%s' at source check '%s'",
+            replacement.identifier,
+            check.identifier,
+        )
+        return replacement
+
+    def __execute_check__(
+        self,
+        check: RequirementCheck,
+        context: ValidationContext,
+        all_passed: bool,
+    ) -> tuple[bool, bool]:
+        """
+        Execute one effective check and update the enclosing requirement state.
+
+        Overlay replacements are resolved before execution, and a replacement
+        already executed in its source slot is not run again when the target
+        profile is visited.  The returned tuple contains the accumulated pass
+        state and whether fail-fast processing must stop after this check.
+        """
+        from rocrate_validator.models.events import (  # noqa: PLC0415
+            RequirementCheckValidationEvent,
+        )
+
+        # An overlay replacement may already have run in the source profile's
+        # slot.  Keep the target pass a no-op instead of executing the same
+        # Python check twice.
+        if context.result.get_check_result(check) is not None:
             return all_passed, False
+
+        execution_check = self.__resolve_execution_check__(check, context)
+        if execution_check is None:
+            return all_passed, False
+        check = execution_check
         if check.deactivated:
             logger.debug("Skipping check '%s' because deactivated", check.identifier)
             self.__record_skipped_check__(check, context, "Check is deactivated", SkipCategory.DEACTIVATED)

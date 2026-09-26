@@ -648,14 +648,12 @@ class ValidationContext:
         if not self.inheritance_enabled:
             return [profile]
 
-        # Validate overlay profiles before their sources.  An overlay contains
-        # the checks whose behavior changed locally; those checks must get the
-        # first chance to fail (for example, malformed JSON must be reported by
-        # the target profile before an inherited metadata check parses it).
-        if profile.rule_overlay_of:
-            profiles = [profile, *profile.inherited_profiles]
-        else:
-            profiles = [*profile.inherited_profiles, profile]
+        # Visit profiles from the most general source to the target.  This is
+        # important for both dependency ordering and SHACL composition: source
+        # shapes are collected before the target profile performs the single
+        # validation run over the complete merged shapes graph.  Python checks
+        # that are replaced by an overlay are dispatched at their source slot.
+        profiles = [*profile.inherited_profiles, profile]
 
         # Validate check identities only for profiles participating in this run.
         # Profile listing and discovery may still inspect intentionally invalid
@@ -736,6 +734,23 @@ class ValidationContext:
         return (
             self.target_profile if self.is_rule_overlay_source(check.requirement.profile) else check.requirement.profile
         )
+
+    def effective_check_replacement(self, check: RequirementCheck) -> RequirementCheck | None:
+        """
+        Return the target-local check replacing ``check``, if any.
+
+        Replacement is resolved against the effective target profile rather
+        than the source profile's sibling list.  This keeps execution scoped
+        to the profile selected for the current validation and avoids treating
+        unrelated profiles loaded in the same registry as active overrides.
+        """
+        target_profile = self.target_profile
+        if check.requirement.profile == target_profile:
+            return None
+        candidate = target_profile.get_requirement_check(check.name, check.severity)
+        if candidate is not None and check in candidate.overrides:
+            return candidate
+        return None
 
     def get_profile_by_token(self, token: str) -> list[Profile]:
         """
