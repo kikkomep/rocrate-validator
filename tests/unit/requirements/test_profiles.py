@@ -41,6 +41,10 @@ from rocrate_validator.models.profile_check import (
 from rocrate_validator.requirements.shacl.checks import SHACLCheck
 from rocrate_validator.requirements.shacl.errors import SHACLValidationError
 from rocrate_validator.requirements.shacl.models import ShapesRegistry
+from rocrate_validator.requirements.shacl.validator import (
+    SHACLValidationAlreadyProcessed,
+    SHACLValidationContext,
+)
 from tests.ro_crates import InvalidFileDescriptorEntity, ValidROC
 
 # set up logging
@@ -603,6 +607,43 @@ def test_rule_overlay_check_can_be_skipped_by_source_or_effective_identifier(
 
         assert skip_check is not None
         assert skip_context.is_check_skipped(skip_check)
+
+
+def test_shacl_overlay_profiles_are_loaded_once_before_processing(
+    check_overriding_profiles_path: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Load every overlay profile graph once while allowing deferred re-entry."""
+    settings = ValidationSettings(
+        profiles_path=Path(check_overriding_profiles_path),
+        profile_identifier="b",
+        rocrate_uri=URI(ValidROC().wrroc_paper),
+        enable_profile_inheritance=True,
+        allow_requirement_check_override=True,
+    )
+    context = ValidationContext(Validator(settings), settings)
+    source = next(profile for profile in context.profiles if profile.identifier == "a")
+    target = next(profile for profile in context.profiles if profile.identifier == "b")
+    shacl_context = SHACLValidationContext.get_instance(context)
+    loaded_paths: list[Path] = []
+
+    def load_ontology(profile_path: Path) -> Graph:
+        """Record ontology loads without parsing external graph content."""
+        loaded_paths.append(profile_path)
+        return Graph()
+
+    monkeypatch.setattr(shacl_context, "__load_ontology_graph__", load_ontology)
+
+    assert shacl_context.__set_current_validation_profile__(source)
+    assert shacl_context.__set_current_validation_profile__(source)
+    assert shacl_context.__set_current_validation_profile__(target)
+    assert loaded_paths == [source.path, target.path]
+    assert shacl_context.__get_ontology_path__(source.path) == source.path / "ontology.ttl"
+    assert shacl_context.__get_ontology_path__(target.path) == target.path / "ontology.ttl"
+
+    shacl_context.current_validation_result = True
+    with pytest.raises(SHACLValidationAlreadyProcessed):
+        shacl_context.__set_current_validation_profile__(target)
 
 
 def test_normally_inherited_check_keeps_source_identity(check_overriding_profiles_path: str):
