@@ -561,6 +561,21 @@ def test_rule_overlay_effective_identity_is_context_local(check_overriding_profi
     assert suppressed_context.result.statistics.total_checks == context.result.statistics.total_checks
 
 
+def test_rule_overlay_keeps_source_before_target(check_overriding_profiles_path: str):
+    """Verify that overlay composition retains general-to-specific traversal."""
+    settings = ValidationSettings(
+        profiles_path=Path(check_overriding_profiles_path),
+        profile_identifier="b",
+        rocrate_uri=URI(ValidROC().wrroc_paper),
+        enable_profile_inheritance=True,
+        allow_requirement_check_override=True,
+    )
+
+    context = ValidationContext(Validator(settings), settings)
+
+    assert [profile.identifier for profile in context.profiles] == ["a", "b"]
+
+
 def test_normally_inherited_check_keeps_source_identity(check_overriding_profiles_path: str):
     settings = ValidationSettings(
         profiles_path=Path(check_overriding_profiles_path),
