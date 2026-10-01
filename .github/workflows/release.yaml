@@ -46,7 +46,7 @@ jobs:
         name: 🏗 Check and Build Distribution
         runs-on: ubuntu-latest
         needs: test
-        if: ${{ github.repository == 'crs4/rocrate-validator' }}
+        #if: ${{ github.repository == 'crs4/rocrate-validator' }}
         steps:
             # Checkout the commit associated with the release tag.
             - name: ⬇️ Checkout code
