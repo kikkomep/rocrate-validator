@@ -40,7 +40,7 @@ jobs:
     test:
         name: 🧪 Run tests
         uses: ./.github/workflows/testing.yaml
-        if: ${{ github.repository == 'crs4/rocrate-validator' }}
+        #if: ${{ github.repository == 'crs4/rocrate-validator' }}
     # Check and Build Distribution
     build:
         name: 🏗 Check and Build Distribution
