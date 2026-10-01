@@ -126,7 +126,7 @@ jobs:
     # Sign and Upload to GitHub Release
     sign-packages:
         name: 🖊️ Sign the Python distribution with Sigstore
-        needs: publish-to-pypi
+        needs: build 
         runs-on: ubuntu-latest
 
         permissions:
