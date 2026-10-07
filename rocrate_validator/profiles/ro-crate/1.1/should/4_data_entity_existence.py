@@ -18,6 +18,7 @@ from rocrate_validator.errors import ROCrateMetadataNotFoundError
 from rocrate_validator.models import CheckResult, CheckResultValue, ValidationContext
 from rocrate_validator.requirements.python import PyFunctionCheck, check, requirement
 from rocrate_validator.utils import log as logging
+from rocrate_validator.utils.uri import is_external_reference
 
 # set up logging
 logger = logging.getLogger(__name__)
@@ -56,6 +57,11 @@ class DataEntityRecommendedChecker(PyFunctionCheck):
         for entity in entities:
             assert entity.id is not None, "Entity has no @id"
             try:
+                if is_external_reference(entity.id) and entity.id_as_uri.scheme == "file":
+                    warning = entity.id_as_uri.file_availability_warning()
+                    if warning:
+                        logger.warning(warning)
+                    continue
                 if not entity.is_available():
                     context.result.add_issue(f"Data Entity {entity.id} is not available", self)
                     result = False

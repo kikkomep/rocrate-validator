@@ -41,6 +41,8 @@ class WebDataEntityRecommendedChecker(PyFunctionCheck):
         `scp://`, `s3://`, `sftp://`) or that are protected by an authorization
         mechanism (HTTP 401/403) are reported as recommendation-level issues
         and logged as warnings, without invalidating the validation.
+        External file references only produce diagnostic log warnings: their
+        availability depends on the system running the validator.
         """
         result = True
         try:
@@ -52,6 +54,11 @@ class WebDataEntityRecommendedChecker(PyFunctionCheck):
         for entity in entities:
             assert entity.id is not None, "Entity has no @id"
             try:
+                if entity.id_as_uri.scheme == "file":
+                    warning = entity.id_as_uri.file_availability_warning()
+                    if warning:
+                        logger.warning(warning)
+                    continue
                 status = entity.check_availability()
                 if status == AvailabilityStatus.AVAILABLE:
                     continue
