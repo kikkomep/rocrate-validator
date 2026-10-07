@@ -154,6 +154,8 @@ class ROCrateEntity:
     def has_absolute_path(self) -> bool:
         if self.id_as_uri.is_remote_resource():
             return True
+        if is_external_reference(self.id) and self.id_as_uri.is_local_resource():
+            return Path(unquote(self.id_as_uri.get_path())).is_absolute()
         return self.get_id_as_path(self.id).is_absolute()
 
     def has_relative_path(self) -> bool:

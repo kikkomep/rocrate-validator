@@ -13,9 +13,11 @@
 # limitations under the License.
 
 import enum
+import os
 import re
+import stat
 from pathlib import Path
-from urllib.parse import ParseResult, parse_qsl, urlparse, urlsplit
+from urllib.parse import ParseResult, parse_qsl, unquote, urlparse, urlsplit
 
 from rocrate_validator import errors
 from rocrate_validator.utils import log as logging
@@ -224,6 +226,35 @@ class URI:
 
     def is_local_file(self) -> bool:
         return self.is_local_resource() and self.as_path().is_file()
+
+    def file_availability_warning(self) -> str | None:
+        """Describe an external file reference's availability in this environment.
+
+        Remote authorities are never interpreted as local paths. For local
+        references, inspect filesystem metadata and permissions without reading
+        file contents. A missing warning means the local path was accessible
+        at the time of the check, not that the file belongs to the crate.
+        """
+        if self.scheme != "file":
+            raise ValueError("Expected a file URI")
+        if self.is_remote_resource():
+            return (
+                f"External file reference '{self.uri}' points to host '{self.get_netloc()}'. "
+                "Availability on that host could not be verified from this system."
+            )
+        path = Path(unquote(self.get_path()))
+        if not path.is_absolute():
+            return f"External file reference '{self.uri}' has no absolute local path; availability was not checked."
+        try:
+            mode = path.stat().st_mode
+            access_mode = os.R_OK | os.X_OK if stat.S_ISDIR(mode) else os.R_OK
+            if not os.access(path, access_mode):
+                return f"External file reference '{self.uri}' is not readable by the validator on this system."
+        except FileNotFoundError:
+            return f"External file reference '{self.uri}' was not found on this system."
+        except (OSError, ValueError) as error:
+            return f"External file reference '{self.uri}' could not be accessed on this system: {error}"
+        return None
 
     def check_availability(self) -> AvailabilityStatus:
         """
