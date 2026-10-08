@@ -20,6 +20,7 @@
     1_installation
     2_usage_cli
     3_usage_api
+    6_package_modes
     4_how_it_works
     5_offline_mode
 
