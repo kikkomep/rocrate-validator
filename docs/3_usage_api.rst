@@ -32,8 +32,11 @@ Programmatic Validation
 
 .. seealso::
 
+    * For package modes, scope, and accepted input combinations, see
+      :ref:`package_modes`.
     * To configure the HTTP cache or run validation without network access,
-      see :ref:`offline_mode`.
+      including the ``offline`` / ``no_cache`` settings of
+      ``ValidationSettings``, see :ref:`offline_mode`.
     * For command-line validation, see the :doc:`CLI guide <2_usage_cli>`.
     * For the complete package API, see the :doc:`API reference <10_api>`.
     * To select or write validation profiles, see
@@ -48,6 +51,10 @@ In addition to full validation, which checks both metadata and data files,
 the library also supports metadata-only validation. This is useful when you
 want to ensure that the metadata conforms to the expected schema without
 checking the actual data files.
+
+You can check only metadata using either Attached or Detached rules. See
+:ref:`package_modes` for the meaning of these modes, their defaults, and examples
+using a metadata file or URL.
 
 To perform metadata-only validation, you can use the `validate_metadata_as_dict`
 from the `rocrate_validator.services` module. This function takes a dictionary
@@ -71,6 +78,34 @@ representing the metadata and validates it against a given validation profile.
 
         # process the validation result as needed
         ...
+
+To check an edited metadata dictionary against payload files in an Attached
+crate directory, pass ``package_root`` to ``services.validate()``:
+
+.. code-block:: python
+
+    from pathlib import Path
+    from rocrate_validator import services
+    from rocrate_validator.models.settings import ValidationSettings
+
+    settings = ValidationSettings(
+        rocrate_uri=None,
+        metadata_dict=rocrate_metadata,
+        package_root=Path("./my-crate"),
+        profile_identifier="ro-crate-1.3",
+        packaging_mode="attached",
+        metadata_only=False,
+    )
+    result = services.validate(settings)
+
+The dictionary supplies the metadata being validated, replacing the physical
+metadata descriptor. The directory supplies only the payload files:
+``ro-crate-metadata.json`` is not required on disk and is ignored if present.
+The report records
+``metadata_source="dictionary"`` and the selected ``package_root``.
+
+For a runnable notebook comparing package modes, validation scopes, and report
+output with dictionary input, see :ref:`validation_examples`.
 
 
 Formatting Validation Results

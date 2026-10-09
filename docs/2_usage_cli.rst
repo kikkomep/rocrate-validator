@@ -36,8 +36,11 @@ CLI Validation
 
 .. seealso::
 
+    * For choosing Attached/Detached rules, checking only metadata, and supported
+      inputs, see :ref:`package_modes`.
     * To validate without network access and manage the HTTP cache from the
-      command line, see :ref:`offline_mode`.
+      command line (the ``--offline`` and ``--no-cache`` flags and the ``cache``
+      subcommand), see :ref:`offline_mode`.
     * For the equivalent Python workflow, see the :doc:`Python API guide
       <3_usage_api>` and the :doc:`API reference <10_api>`.
     * To select additional validation profiles, see

@@ -50,6 +50,10 @@ if TYPE_CHECKING:
     from rocrate_validator.models.profile import Profile
     from rocrate_validator.models.validation import ValidationContext
 
+# This module contains the requirement/check model and its loader algorithms.
+# Keep the related model code together; splitting it would create circular imports.
+# pylint: disable=too-many-lines
+
 
 @total_ordering
 class Requirement(ABC):
@@ -765,6 +769,8 @@ class RequirementLoader:
 
         return [nodes[index] for index in ordered_indices]
 
+    # The topological ordering algorithm keeps its graph bookkeeping local.
+    # pylint: disable=too-many-locals
     @classmethod
     def order_by_dependencies(
         cls,

@@ -20,6 +20,7 @@
     1_installation
     2_usage_cli
     3_usage_api
+    6_package_modes
 
 .. toctree::
     :maxdepth: 5
@@ -29,6 +30,7 @@
     12_validation_profiles
     5_offline_mode
     10_api
+    examples/index
 
 .. toctree::
     :maxdepth: 5
